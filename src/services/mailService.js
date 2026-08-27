@@ -7,45 +7,22 @@ import nodemailer from 'nodemailer';
  * Create Nodemailer Transporter
  */
 const createTransporter = () => {
-  const emailUser = process.env.EMAIL_USER ? process.env.EMAIL_USER.trim() : '';
-  const emailPass = process.env.EMAIL_PASS ? process.env.EMAIL_PASS.replace(/[-\s]/g, '').trim() : '';
-  const emailService = process.env.EMAIL_SERVICE || 'gmail';
+  const emailUser = (process.env.EMAIL_USER || 'team.theuniques@sviet.ac.in').trim();
+  const emailPass = (process.env.EMAIL_PASS || 'yrlfugwlqrpmvbec').replace(/[-\s]/g, '').trim();
 
-  // If real credentials are provided
-  if (emailUser && emailPass && !emailUser.includes('your-email')) {
-    if (process.env.SMTP_HOST) {
-      return nodemailer.createTransport({
-        host: process.env.SMTP_HOST,
-        port: parseInt(process.env.SMTP_PORT || '587', 10),
-        secure: process.env.SMTP_SECURE === 'true',
-        auth: {
-          user: emailUser,
-          pass: emailPass,
-        },
-      });
-    }
-
-    return nodemailer.createTransport({
-      service: emailService,
-      auth: {
-        user: emailUser,
-        pass: emailPass,
-      },
-    });
-  }
-
-  // Fallback: Test / Console Logger Mode if real credentials are not set
-  return {
-    sendMail: async (mailOptions) => {
-      console.log('------------------------------------------------------------');
-      console.log('📧 [SIMULATED EMAIL DISPATCH] (Configure EMAIL_USER & EMAIL_PASS in .env to send real emails)');
-      console.log(`To: ${mailOptions.to}`);
-      console.log(`Subject: ${mailOptions.subject}`);
-      console.log('------------------------------------------------------------');
-      return { messageId: 'simulated-' + Date.now(), accepted: [mailOptions.to] };
+  return nodemailer.createTransport({
+    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    auth: {
+      user: emailUser,
+      pass: emailPass,
     },
-    isSimulated: true,
-  };
+    tls: {
+      rejectUnauthorized: false,
+    },
+  });
 };
 
 /**
@@ -305,8 +282,9 @@ const getMemberEmailTemplate = ({ teamName, memberName, leaderName, registration
  */
 export const sendRegistrationConfirmationEmails = async ({ teamName, leader, members, driveLink, registrationId }) => {
   const transporter = createTransporter();
-  const fromEmail = process.env.EMAIL_USER || process.env.EMAIL_FROM_ADDRESS || 'noreply@ideajam2026.com';
-  const fromAddress = `"${process.env.EMAIL_FROM_NAME || 'IdeaJam 2026'}" <${fromEmail}>`;
+  const fromEmail = (process.env.EMAIL_USER || 'team.theuniques@sviet.ac.in').trim();
+  const fromName = process.env.EMAIL_FROM_NAME || 'IdeaJam 2026';
+  const fromAddress = `"${fromName}" <${fromEmail}>`;
 
   let leaderSent = false;
   let membersSentCount = 0;
