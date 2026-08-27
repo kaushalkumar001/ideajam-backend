@@ -1,0 +1,74 @@
+[
+  {
+    "_id": "rec_1787819738038_g8hx",
+    "registrationId": "IJ26-6DC8B3",
+    "teamName": "techsquad",
+    "leader": {
+      "name": "asish",
+      "email": "kundanbth133@gmail.com",
+      "phone": "8092726161"
+    },
+    "members": [
+      {
+        "id": 1,
+        "name": "ashish",
+        "email": "kundan12@gmail.com"
+      },
+      {
+        "id": 2,
+        "name": "nidhi",
+        "email": "kumarbth133@gmail.com"
+      },
+      {
+        "id": 3,
+        "name": "kaushal",
+        "email": "kk12@gmail.com"
+      }
+    ],
+    "driveLink": "http://localhost:5173/",
+    "status": "Pending",
+    "createdAt": "2026-08-27T08:35:38.038Z",
+    "updatedAt": "2026-08-27T08:35:38.038Z",
+    "emailNotification": {
+      "leaderDelivered": true,
+      "membersDeliveredCount": 3,
+      "lastSentAt": "2026-08-27T08:35:55.998Z"
+    }
+  },
+  {
+    "_id": "rec_1787819633801_u40r",
+    "registrationId": "IJ26-3EC50A",
+    "teamName": "hjwd",
+    "leader": {
+      "name": "nidhi",
+      "email": "nidhishree43421@gmal.com",
+      "phone": "8092726161"
+    },
+    "members": [
+      {
+        "id": 1,
+        "name": "nidhi",
+        "email": "nidhishree43421@gmal.com"
+      },
+      {
+        "id": 2,
+        "name": "dnsdnskl",
+        "email": "kunnd12@gmail.com"
+      },
+      {
+        "id": 3,
+        "name": "kjsdkj",
+        "email": "kk122@gmail.com"
+      }
+    ],
+    "driveLink": "file:///C:/Users/admin/Downloads/Build%20with%20Bharat%202.0%20PPT%20Template.pdf.pdf",
+    "status": "Pending",
+    "createdAt": "2026-08-27T08:33:53.801Z",
+    "updatedAt": "2026-08-27T08:33:53.801Z",
+    "emailNotification": {
+      "leaderDelivered": true,
+      "membersDeliveredCount": 3,
+      "lastSentAt": "2026-08-27T08:34:08.567Z"
+    }
+  }
+]
