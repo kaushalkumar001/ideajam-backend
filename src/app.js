@@ -21,6 +21,23 @@ app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 app.use(morgan('dev'));
 
+// Test & Root Routes
+app.get('/', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: '🚀 IdeaJam 2026 Backend Server is running successfully!',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+app.get('/test', (req, res) => {
+  res.status(200).json({
+    success: true,
+    message: '✅ Backend Test Route is Working Successfully!',
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // API Routes
 app.use('/api', registrationRoutes);
 
