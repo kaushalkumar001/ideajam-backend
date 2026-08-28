@@ -29,8 +29,6 @@ const registrationSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Team name is required'],
     trim: true,
-    unique: true,
-    index: true,
   },
   leader: {
     name: {

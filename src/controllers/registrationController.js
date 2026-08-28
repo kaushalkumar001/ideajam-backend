@@ -69,45 +69,55 @@ const isValidEmail = (email) => {
  */
 export const registerTeam = async (req, res) => {
   try {
-    const { teamName, leaderName, leaderEmail, leaderPhone, driveLink, members } = req.body;
+    const reqTeamName = req.body.teamName || req.body.team || '';
+    const reqLeaderName = req.body.leaderName || (typeof req.body.leader === 'object' ? req.body.leader?.name : req.body.leader) || '';
+    const reqLeaderEmail = req.body.leaderEmail || (typeof req.body.leader === 'object' ? req.body.leader?.email : req.body.email) || '';
+    const reqLeaderPhone = req.body.leaderPhone || (typeof req.body.leader === 'object' ? req.body.leader?.phone : req.body.phone) || '';
+    const reqDriveLink = req.body.driveLink || req.body.ppt || req.body.pptUrl || req.body.submissionUrl || '';
+    const rawMembers = Array.isArray(req.body.members) ? req.body.members : [];
+
+    // Filter active non-empty member entries
+    const activeMembers = rawMembers.filter((m) => m && (m.name?.toString().trim() || m.email?.toString().trim()));
 
     // 1. Input Validation
-    if (!teamName || !teamName.trim()) {
+    if (!reqTeamName || !reqTeamName.toString().trim()) {
       return res.status(400).json({
         success: false,
         message: 'Team name is required.',
       });
     }
 
-    if (!leaderName || !leaderName.trim()) {
+    if (!reqLeaderName || !reqLeaderName.toString().trim()) {
       return res.status(400).json({
         success: false,
         message: 'Team leader name is required.',
       });
     }
 
-    if (!leaderEmail || !isValidEmail(leaderEmail)) {
+    if (!reqLeaderEmail || !isValidEmail(reqLeaderEmail.toString().trim())) {
       return res.status(400).json({
         success: false,
         message: 'A valid team leader email address is required.',
       });
     }
 
-    if (!leaderPhone || !leaderPhone.trim()) {
+    if (!reqLeaderPhone || !reqLeaderPhone.toString().trim()) {
       return res.status(400).json({
         success: false,
         message: 'Team leader phone number is required.',
       });
     }
 
-    if (!Array.isArray(members) || members.length < 1) {
-      return res.status(400).json({
-        success: false,
-        message: 'A minimum of 1 team member (in addition to leader) is required.',
+    // Fallback: If no extra members provided, add at least 1 member slot automatically
+    if (activeMembers.length < 1) {
+      activeMembers.push({
+        id: 1,
+        name: reqLeaderName.toString().trim(),
+        email: reqLeaderEmail.toString().trim(),
       });
     }
 
-    if (members.length > 5) {
+    if (activeMembers.length > 5) {
       return res.status(400).json({
         success: false,
         message: 'A maximum of 5 team members is allowed.',
@@ -115,15 +125,15 @@ export const registerTeam = async (req, res) => {
     }
 
     // Validate each member
-    for (let i = 0; i < members.length; i++) {
-      const m = members[i];
-      if (!m || !m.name || !m.name.trim()) {
+    for (let i = 0; i < activeMembers.length; i++) {
+      const m = activeMembers[i];
+      if (!m || !m.name || !m.name.toString().trim()) {
         return res.status(400).json({
           success: false,
           message: `Team member #${i + 1} name is required.`,
         });
       }
-      if (!m.email || !isValidEmail(m.email)) {
+      if (!m.email || !isValidEmail(m.email.toString().trim())) {
         return res.status(400).json({
           success: false,
           message: `A valid email is required for member #${i + 1} (${m.name || 'Unnamed'}).`,
@@ -131,15 +141,15 @@ export const registerTeam = async (req, res) => {
       }
     }
 
-    const cleanTeamName = teamName.trim();
-    const cleanLeaderEmail = leaderEmail.trim().toLowerCase();
-    const cleanLeaderName = leaderName.trim();
-    const cleanLeaderPhone = leaderPhone.trim();
-    const cleanDriveLink = (driveLink || '').trim();
-    const cleanMembers = members.map((m, idx) => ({
+    const cleanTeamName = reqTeamName.toString().trim();
+    const cleanLeaderEmail = reqLeaderEmail.toString().trim().toLowerCase();
+    const cleanLeaderName = reqLeaderName.toString().trim();
+    const cleanLeaderPhone = reqLeaderPhone.toString().trim();
+    const cleanDriveLink = (reqDriveLink || '').toString().trim();
+    const cleanMembers = activeMembers.map((m, idx) => ({
       id: m.id || idx + 1,
-      name: m.name.trim(),
-      email: m.email.trim().toLowerCase(),
+      name: m.name.toString().trim(),
+      email: m.email.toString().trim().toLowerCase(),
     }));
 
     // 2. Generate unique Registration ID
@@ -324,6 +334,36 @@ export const getAllRegistrations = async (req, res) => {
 };
 
 /**
+ * Helper: format team object consistently for admin dashboard frontend
+ */
+const formatTeamRecord = (item, idx = 0) => {
+  if (!item) return null;
+  return {
+    id: item.registrationId || item._id || idx + 1,
+    registrationId: item.registrationId || item._id,
+    team: item.teamName || item.team || 'Unnamed Team',
+    teamName: item.teamName || item.team || 'Unnamed Team',
+    leader: item.leader?.name || item.leader || '—',
+    email: item.leader?.email || item.email || '—',
+    phone: item.leader?.phone || item.phone || '—',
+    department: item.department || 'General',
+    route: item.route || 'SIH Problem Statement',
+    problem: item.problem || 'Registered Solution',
+    idea: item.idea || 'Idea submission for IdeaJam 2026',
+    ppt: item.driveLink || item.ppt || '',
+    driveLink: item.driveLink || item.ppt || '',
+    status: item.status || 'Pending',
+    score: item.score || null,
+    remark: item.remark || '',
+    members: item.members || [],
+    round2Marks: item.round2Marks || {},
+    round3Marks: item.round3Marks || {},
+    round2Status: item.round2Status || 'Pending',
+    createdAt: item.createdAt || new Date(),
+  };
+};
+
+/**
  * GET /api/registrations/:id
  * Retrieve specific registration by registrationId or DB _id
  */
@@ -349,7 +389,7 @@ export const getRegistrationById = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      data: registration,
+      data: formatTeamRecord(registration),
     });
   } catch (error) {
     return res.status(500).json({
@@ -372,27 +412,7 @@ export const getAdminTeams = async (req, res) => {
       list = inMemoryRegistrations;
     }
 
-    const formatted = list.map((item, idx) => ({
-      id: item.registrationId || item._id || idx + 1,
-      team: item.teamName || item.team || 'Unnamed Team',
-      leader: item.leader?.name || item.leader || '—',
-      email: item.leader?.email || item.email || '—',
-      phone: item.leader?.phone || item.phone || '—',
-      department: item.department || 'General',
-      route: item.route || 'SIH Problem Statement',
-      problem: item.problem || 'Registered Solution',
-      idea: item.idea || 'Idea submission for IdeaJam 2026',
-      ppt: item.driveLink || item.ppt || '',
-      driveLink: item.driveLink || '',
-      status: item.status || 'Pending',
-      score: item.score || null,
-      remark: item.remark || '',
-      members: item.members || [],
-      round2Marks: item.round2Marks || {},
-      round3Marks: item.round3Marks || {},
-      round2Status: item.round2Status || 'Pending',
-      createdAt: item.createdAt || new Date(),
-    }));
+    const formatted = list.map((item, idx) => formatTeamRecord(item, idx));
 
     return res.status(200).json({
       success: true,
@@ -430,7 +450,7 @@ export const updateTeamStatus = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      data: updated,
+      data: formatTeamRecord(updated),
     });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
@@ -449,8 +469,9 @@ export const getRoundProgress = async (req, res) => {
       list = inMemoryRegistrations;
     }
 
-    const round2Teams = list.filter((t) => t.status === 'Accepted');
-    const round3Teams = list.filter((t) => t.round2Status === 'Accepted');
+    const formattedList = list.map((item, idx) => formatTeamRecord(item, idx));
+    const round2Teams = formattedList.filter((t) => t.status === 'Accepted');
+    const round3Teams = formattedList.filter((t) => t.round2Status === 'Accepted');
 
     return res.status(200).json({
       success: true,
