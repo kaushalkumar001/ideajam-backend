@@ -5,6 +5,7 @@ import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import registrationRoutes from './routes/registrationRoutes.js';
+import { connectDB } from './config/db.js';
 
 const app = express();
 
@@ -20,6 +21,16 @@ app.use(cors({
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 app.use(morgan('dev'));
+
+// Ensure Database is connected for Serverless / Vercel functions
+app.use(async (req, res, next) => {
+  try {
+    await connectDB();
+  } catch (err) {
+    console.error("Database connection error:", err.message);
+  }
+  next();
+});
 
 // Test & Root Routes
 app.get('/', (req, res) => {
