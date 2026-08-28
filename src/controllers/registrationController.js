@@ -253,31 +253,30 @@ export const registerTeam = async (req, res) => {
       savedRegistration = fallbackRecord;
     }
 
-    // 4. Asynchronous Background Email Dispatch (Non-blocking for high concurrency)
-    setImmediate(async () => {
-      try {
-        const emailResult = await sendRegistrationConfirmationEmails({
-          teamName: cleanTeamName,
-          leader: {
-            name: cleanLeaderName,
-            email: cleanLeaderEmail,
-            phone: cleanLeaderPhone,
-          },
-          members: cleanMembers,
-          registrationId,
-        });
+    // 4. Automated Email Dispatch (Awaited for serverless compatibility)
+    try {
+      const emailResult = await sendRegistrationConfirmationEmails({
+        teamName: cleanTeamName,
+        leader: {
+          name: cleanLeaderName,
+          email: cleanLeaderEmail,
+          phone: cleanLeaderPhone,
+        },
+        members: cleanMembers,
+        driveLink: cleanDriveLink,
+        registrationId,
+      });
 
-        if (isDbConnected && savedRegistration?._id) {
-          await Registration.findByIdAndUpdate(savedRegistration._id, {
-            'emailNotification.leaderDelivered': emailResult.leaderSent,
-            'emailNotification.membersDeliveredCount': emailResult.membersSentCount,
-            'emailNotification.lastSentAt': new Date(),
-          });
-        }
-      } catch (emailErr) {
-        console.error('⚠️ [Async Email Notice]:', emailErr.message);
+      if (isDbConnected && savedRegistration?._id) {
+        await Registration.findByIdAndUpdate(savedRegistration._id, {
+          'emailNotification.leaderDelivered': emailResult.leaderSent,
+          'emailNotification.membersDeliveredCount': emailResult.membersSentCount,
+          'emailNotification.lastSentAt': new Date(),
+        }).catch(() => {});
       }
-    });
+    } catch (emailErr) {
+      console.error('⚠️ [Email Dispatch Notice]:', emailErr.message);
+    }
 
     // 5. Immediate Fast HTTP Response
     return res.status(201).json({
