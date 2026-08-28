@@ -1,7 +1,7 @@
 import http from 'http';
 
-const BASE_URL = process.env.TEST_URL || 'http://localhost:5005/api/register';
-const HEALTH_URL = process.env.HEALTH_URL || 'http://localhost:5005/api/health';
+const BASE_URL = process.env.TEST_URL || 'https://ideajam-backend.vercel.app//api/register';
+const HEALTH_URL = process.env.HEALTH_URL || 'https://ideajam-backend.vercel.app//api/health';
 
 function makeRegistrationPayload(index, prefix = 'team') {
   const ts = Date.now().toString(36) + Math.random().toString(36).substring(2, 5);
@@ -140,7 +140,7 @@ async function runRaceConditionTest() {
 
 async function runMainSuite() {
   console.log(`🔍 Initializing IdeaJam 2026 Concurrency Load Test Suite...`);
-  
+
   // Health check first
   const healthRes = await new Promise((resolve) => {
     http.get(HEALTH_URL, (res) => resolve(res.statusCode)).on('error', () => resolve(0));
