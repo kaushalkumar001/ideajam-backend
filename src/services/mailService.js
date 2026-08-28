@@ -3,32 +3,47 @@ dotenv.config();
 
 import nodemailer from 'nodemailer';
 
-/**
- * Create Nodemailer Transporter
- */
-const createTransporter = () => {
-  const emailUser = (process.env.EMAIL_USER || 'team.theuniques@sviet.ac.in').trim();
-  const emailPass = (process.env.EMAIL_PASS || 'yrlfugwlqrpmvbec').replace(/[-\s]/g, '').trim();
+let transporterInstance = null;
 
-  return nodemailer.createTransport({
-    service: 'gmail',
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
-    auth: {
-      user: emailUser,
-      pass: emailPass,
-    },
-    tls: {
-      rejectUnauthorized: false,
-    },
-  });
+/**
+ * Get or create a Singleton Pooled Nodemailer Transporter
+ */
+const getTransporter = () => {
+  const emailUser = (process.env.EMAIL_USER || '').trim();
+  const emailPass = (process.env.EMAIL_PASS || '').replace(/[-\s]/g, '').trim();
+
+  if (!emailUser || !emailPass) {
+    return null;
+  }
+
+  if (!transporterInstance) {
+    transporterInstance = nodemailer.createTransport({
+      pool: true,
+      maxConnections: 5,
+      maxMessages: 100,
+      rateDelta: 1000,
+      rateLimit: 5,
+      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
+      auth: {
+        user: emailUser,
+        pass: emailPass,
+      },
+      tls: {
+        rejectUnauthorized: false,
+      },
+    });
+  }
+
+  return transporterInstance;
 };
 
 /**
  * Generate Leader HTML Email Template
  */
-const getLeaderEmailTemplate = ({ teamName, leaderName, registrationId, members, leaderPhone, driveLink }) => {
+const getLeaderEmailTemplate = ({ teamName, leaderName, members, leaderPhone, driveLink }) => {
   const membersHtml = members
     .map(
       (m, idx) => `
@@ -68,21 +83,6 @@ const getLeaderEmailTemplate = ({ teamName, leaderName, registrationId, members,
               <p style="margin: 8px 0 0 0; color: #94a3b8; font-size: 15px;">
                 Welcome aboard! Your team is officially registered.
               </p>
-            </td>
-          </tr>
-
-          <!-- Ticket Box -->
-          <tr>
-            <td style="padding: 32px 32px 10px 32px;">
-              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background: linear-gradient(135deg, rgba(27, 182, 131, 0.1) 0%, rgba(5, 150, 105, 0.05) 100%); border: 1px dashed #1BB683; border-radius: 16px; padding: 24px; text-align: center;">
-                <tr>
-                  <td>
-                    <span style="color: #94a3b8; font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;">YOUR REGISTRATION ID / PASS</span>
-                    <h2 style="margin: 8px 0; color: #1BB683; font-size: 28px; font-weight: 900; letter-spacing: 3px; font-family: monospace;">${registrationId}</h2>
-                    <span style="display: inline-block; padding: 4px 12px; background-color: #1BB683; color: #111A29; font-size: 12px; font-weight: 800; border-radius: 6px; text-transform: uppercase;">Team Leader Pass</span>
-                  </td>
-                </tr>
-              </table>
             </td>
           </tr>
 
@@ -140,7 +140,6 @@ const getLeaderEmailTemplate = ({ teamName, leaderName, registrationId, members,
                 <ul style="margin: 0; padding-left: 20px; color: #cbd5e1; font-size: 13px; line-height: 1.6;">
                   <li>Round 1 pitch submission deadline details will be notified soon.</li>
                   <li>Ensure all team members join the official Discord/WhatsApp announcement channel.</li>
-                  <li>Keep this Registration ID handy during attendance and prototype evaluation.</li>
                 </ul>
               </div>
 
@@ -180,7 +179,7 @@ const getLeaderEmailTemplate = ({ teamName, leaderName, registrationId, members,
 /**
  * Generate Team Member HTML Email Template
  */
-const getMemberEmailTemplate = ({ teamName, memberName, leaderName, registrationId }) => {
+const getMemberEmailTemplate = ({ teamName, memberName, leaderName }) => {
   return `
 <!DOCTYPE html>
 <html lang="en">
@@ -200,7 +199,7 @@ const getMemberEmailTemplate = ({ teamName, memberName, leaderName, registration
           <tr>
             <td style="background: linear-gradient(135deg, #111A29 0%, #16263D 100%); padding: 32px 28px; text-align: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
               <div style="display: inline-block; padding: 6px 16px; background-color: rgba(27, 182, 131, 0.15); border: 1px solid rgba(27, 182, 131, 0.4); border-radius: 50px; margin-bottom: 14px;">
-                <span style="color: #1BB683; font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;">🚀 TEAM MEMBER PASS</span>
+                <span style="color: #1BB683; font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;">🚀 TEAM MEMBER REGISTRATION</span>
               </div>
               <h1 style="margin: 0; font-size: 28px; font-weight: 900; letter-spacing: -0.5px; color: #ffffff;">
                 Welcome to <span style="color: #1BB683;">IdeaJam 2026</span>
@@ -208,21 +207,6 @@ const getMemberEmailTemplate = ({ teamName, memberName, leaderName, registration
               <p style="margin: 8px 0 0 0; color: #94a3b8; font-size: 14px;">
                 You are registered as part of Team <strong style="color: #ffffff;">${teamName}</strong>
               </p>
-            </td>
-          </tr>
-
-          <!-- Ticket Box -->
-          <tr>
-            <td style="padding: 28px 28px 10px 28px;">
-              <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background: linear-gradient(135deg, rgba(27, 182, 131, 0.08) 0%, rgba(5, 150, 105, 0.03) 100%); border: 1px dashed #1BB683; border-radius: 14px; padding: 20px; text-align: center;">
-                <tr>
-                  <td>
-                    <span style="color: #94a3b8; font-size: 11px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase;">TEAM REGISTRATION PASS</span>
-                    <h2 style="margin: 6px 0; color: #1BB683; font-size: 26px; font-weight: 900; letter-spacing: 2px; font-family: monospace;">${registrationId}</h2>
-                    <span style="color: #cbd5e1; font-size: 13px;">Team Leader: <strong style="color: #ffffff;">${leaderName}</strong></span>
-                  </td>
-                </tr>
-              </table>
             </td>
           </tr>
 
@@ -281,8 +265,14 @@ const getMemberEmailTemplate = ({ teamName, memberName, leaderName, registration
  * Send automated confirmation emails to Team Leader and all Members
  */
 export const sendRegistrationConfirmationEmails = async ({ teamName, leader, members, driveLink, registrationId }) => {
-  const transporter = createTransporter();
-  const fromEmail = (process.env.EMAIL_USER || 'team.theuniques@sviet.ac.in').trim();
+  const transporter = getTransporter();
+
+  if (!transporter) {
+    console.warn(`⚠️ [Nodemailer Notice] EMAIL_USER or EMAIL_PASS missing in .env. Skipping automated email dispatch.`);
+    return { leaderSent: false, membersSentCount: 0, totalTargetMembers: members.length };
+  }
+
+  const fromEmail = (process.env.EMAIL_USER || '').trim();
   const fromName = process.env.EMAIL_FROM_NAME || 'IdeaJam 2026';
   const fromAddress = `"${fromName}" <${fromEmail}>`;
 
@@ -294,13 +284,12 @@ export const sendRegistrationConfirmationEmails = async ({ teamName, leader, mem
     const leaderMailOptions = {
       from: fromAddress,
       to: leader.email,
-      subject: `🎉 Registration Confirmed: Team "${teamName}" [Pass: ${registrationId}] - IdeaJam 2026`,
+      subject: `🎉 Registration Confirmed: Team "${teamName}" - IdeaJam 2026`,
       html: getLeaderEmailTemplate({
         teamName,
         leaderName: leader.name,
         leaderPhone: leader.phone,
         driveLink,
-        registrationId,
         members,
       }),
     };
@@ -309,7 +298,11 @@ export const sendRegistrationConfirmationEmails = async ({ teamName, leader, mem
     console.log(`✅ [Nodemailer] Confirmation email successfully sent to Team Leader: ${leader.email} (MsgID: ${leaderResult.messageId})`);
     leaderSent = true;
   } catch (error) {
-    console.error(`❌ [Nodemailer Error] Failed to send email to Leader (${leader.email}):`, error.message);
+    if (error.message && error.message.includes('454')) {
+      console.warn(`⚠️ [Nodemailer Notice] Google SMTP Rate-Limit (454): Too many login attempts in a short duration. Email queued for later retry.`);
+    } else {
+      console.error(`❌ [Nodemailer Error] Failed to send email to Leader (${leader.email}):`, error.message);
+    }
   }
 
   // 2. Send Emails to all Team Members
@@ -320,12 +313,11 @@ export const sendRegistrationConfirmationEmails = async ({ teamName, leader, mem
       const memberMailOptions = {
         from: fromAddress,
         to: member.email,
-        subject: `🚀 You've joined Team "${teamName}" for IdeaJam 2026! [Pass: ${registrationId}]`,
+        subject: `🚀 You've joined Team "${teamName}" for IdeaJam 2026!`,
         html: getMemberEmailTemplate({
           teamName,
           memberName: member.name,
           leaderName: leader.name,
-          registrationId,
         }),
       };
 
@@ -333,7 +325,11 @@ export const sendRegistrationConfirmationEmails = async ({ teamName, leader, mem
       console.log(`✅ [Nodemailer] Member email sent to: ${member.email} (MsgID: ${memberResult.messageId})`);
       membersSentCount++;
     } catch (err) {
-      console.error(`❌ [Nodemailer Error] Failed to send email to member (${member.email}):`, err.message);
+      if (err.message && err.message.includes('454')) {
+        console.warn(`⚠️ [Nodemailer Notice] Google SMTP Rate-Limit (454): Member email queued.`);
+      } else {
+        console.error(`❌ [Nodemailer Error] Failed to send email to member (${member.email}):`, err.message);
+      }
     }
   }
 
@@ -343,3 +339,5 @@ export const sendRegistrationConfirmationEmails = async ({ teamName, leader, mem
     totalTargetMembers: members.length,
   };
 };
+
+

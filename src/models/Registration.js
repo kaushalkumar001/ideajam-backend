@@ -29,6 +29,8 @@ const registrationSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Team name is required'],
     trim: true,
+    unique: true,
+    index: true,
   },
   leader: {
     name: {
@@ -41,6 +43,7 @@ const registrationSchema = new mongoose.Schema({
       required: [true, 'Team leader email is required'],
       trim: true,
       lowercase: true,
+      unique: true,
       index: true,
     },
     phone: {
@@ -67,6 +70,7 @@ const registrationSchema = new mongoose.Schema({
     type: String,
     enum: ['Pending', 'Accepted', 'Rejected', 'CONFIRMED', 'PENDING', 'CANCELLED'],
     default: 'Pending',
+    index: true,
   },
   remark: {
     type: String,
@@ -80,6 +84,7 @@ const registrationSchema = new mongoose.Schema({
     type: String,
     enum: ['Pending', 'Accepted', 'Rejected'],
     default: 'Pending',
+    index: true,
   },
   round2Remark: {
     type: String,
@@ -119,6 +124,10 @@ const registrationSchema = new mongoose.Schema({
   timestamps: true,
 });
 
+// Compound/Collated index for case-insensitive unique team name checking
+registrationSchema.index({ teamName: 1 }, { collation: { locale: 'en', strength: 2 }, unique: true });
+
 const Registration = mongoose.model('Registration', registrationSchema);
 
 export default Registration;
+

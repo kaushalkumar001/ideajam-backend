@@ -38,13 +38,12 @@ const loadDiskRegistrations = () => {
   return [];
 };
 
-const saveDiskRegistrations = (list) => {
-  try {
-    initDiskStore();
-    fs.writeFileSync(DATA_FILE, JSON.stringify(list, null, 2), 'utf-8');
-  } catch (err) {
-    console.error('Error writing disk registrations:', err.message);
-  }
+// Asynchronous non-blocking disk persistence
+const saveDiskRegistrationsAsync = (list) => {
+  initDiskStore();
+  fs.promises.writeFile(DATA_FILE, JSON.stringify(list, null, 2), 'utf-8').catch((err) => {
+    console.error('Error writing disk registrations asynchronously:', err.message);
+  });
 };
 
 let inMemoryRegistrations = loadDiskRegistrations();
@@ -72,7 +71,7 @@ export const registerTeam = async (req, res) => {
   try {
     const { teamName, leaderName, leaderEmail, leaderPhone, driveLink, members } = req.body;
 
-    // 1. Validation
+    // 1. Input Validation
     if (!teamName || !teamName.trim()) {
       return res.status(400).json({
         success: false,
@@ -118,7 +117,7 @@ export const registerTeam = async (req, res) => {
     // Validate each member
     for (let i = 0; i < members.length; i++) {
       const m = members[i];
-      if (!m.name || !m.name.trim()) {
+      if (!m || !m.name || !m.name.trim()) {
         return res.status(400).json({
           success: false,
           message: `Team member #${i + 1} name is required.`,
@@ -152,7 +151,7 @@ export const registerTeam = async (req, res) => {
 
     try {
       // Check for duplicate team leader email in MongoDB
-      const existingLeader = await Registration.findOne({ 'leader.email': cleanLeaderEmail });
+      const existingLeader = await Registration.findOne({ 'leader.email': cleanLeaderEmail }).lean();
       if (existingLeader) {
         return res.status(409).json({
           success: false,
@@ -163,8 +162,8 @@ export const registerTeam = async (req, res) => {
 
       // Check for duplicate team name in MongoDB
       const existingTeam = await Registration.findOne({
-        teamName: { $regex: new RegExp(`^${cleanTeamName}$`, 'i') },
-      });
+        teamName: { $regex: new RegExp(`^${cleanTeamName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+      }).lean();
       if (existingTeam) {
         return res.status(409).json({
           success: false,
@@ -189,6 +188,21 @@ export const registerTeam = async (req, res) => {
       isDbConnected = true;
       console.log(`✅ [Database] Team registered & saved to MongoDB: ${cleanTeamName} (${registrationId})`);
     } catch (dbErr) {
+      // Handle MongoDB E11000 Duplicate Key Error explicitly for race conditions
+      if (dbErr.code === 11000) {
+        const errorPattern = JSON.stringify(dbErr.keyPattern || dbErr.message || '');
+        if (errorPattern.includes('leader') || errorPattern.includes('email')) {
+          return res.status(409).json({
+            success: false,
+            message: `This team leader email (${cleanLeaderEmail}) is already registered.`,
+          });
+        }
+        return res.status(409).json({
+          success: false,
+          message: `Team name "${cleanTeamName}" is already taken. Please choose another unique name.`,
+        });
+      }
+
       console.warn(`⚠️ [Database Notice] MongoDB save unavailable (${dbErr.message}). Saving to persistent disk store.`);
       
       // Check in-memory duplicates
@@ -225,46 +239,40 @@ export const registerTeam = async (req, res) => {
         updatedAt: new Date(),
       };
       inMemoryRegistrations.unshift(fallbackRecord);
-      saveDiskRegistrations(inMemoryRegistrations);
+      saveDiskRegistrationsAsync(inMemoryRegistrations);
       savedRegistration = fallbackRecord;
     }
 
-    // 4. Send Confirmation Emails to Leader & All Members asynchronously
-    const emailResult = await sendRegistrationConfirmationEmails({
-      teamName: cleanTeamName,
-      leader: {
-        name: cleanLeaderName,
-        email: cleanLeaderEmail,
-        phone: cleanLeaderPhone,
-      },
-      members: cleanMembers,
-      registrationId,
+    // 4. Asynchronous Background Email Dispatch (Non-blocking for high concurrency)
+    setImmediate(async () => {
+      try {
+        const emailResult = await sendRegistrationConfirmationEmails({
+          teamName: cleanTeamName,
+          leader: {
+            name: cleanLeaderName,
+            email: cleanLeaderEmail,
+            phone: cleanLeaderPhone,
+          },
+          members: cleanMembers,
+          registrationId,
+        });
+
+        if (isDbConnected && savedRegistration?._id) {
+          await Registration.findByIdAndUpdate(savedRegistration._id, {
+            'emailNotification.leaderDelivered': emailResult.leaderSent,
+            'emailNotification.membersDeliveredCount': emailResult.membersSentCount,
+            'emailNotification.lastSentAt': new Date(),
+          });
+        }
+      } catch (emailErr) {
+        console.error('⚠️ [Async Email Notice]:', emailErr.message);
+      }
     });
 
-    // 5. Update record with email dispatch status
-    if (isDbConnected && savedRegistration?._id) {
-      try {
-        await Registration.findByIdAndUpdate(savedRegistration._id, {
-          'emailNotification.leaderDelivered': emailResult.leaderSent,
-          'emailNotification.membersDeliveredCount': emailResult.membersSentCount,
-          'emailNotification.lastSentAt': new Date(),
-        });
-      } catch (err) {
-        console.error('Error updating email status in DB:', err.message);
-      }
-    } else if (savedRegistration) {
-      savedRegistration.emailNotification = {
-        leaderDelivered: emailResult.leaderSent,
-        membersDeliveredCount: emailResult.membersSentCount,
-        lastSentAt: new Date(),
-      };
-      saveDiskRegistrations(inMemoryRegistrations);
-    }
-
-    // 6. Return response
+    // 5. Immediate Fast HTTP Response
     return res.status(201).json({
       success: true,
-      message: 'Team registered successfully! Confirmation emails have been dispatched to the leader and all team members.',
+      message: 'Team registered successfully! Confirmation emails are being dispatched to the team.',
       data: {
         registrationId,
         teamName: cleanTeamName,
@@ -275,7 +283,6 @@ export const registerTeam = async (req, res) => {
         },
         members: cleanMembers,
         driveLink: cleanDriveLink,
-        emailNotification: emailResult,
         createdAt: savedRegistration.createdAt || new Date(),
       },
     });
@@ -297,7 +304,7 @@ export const getAllRegistrations = async (req, res) => {
   try {
     let registrations = [];
     try {
-      registrations = await Registration.find().sort({ createdAt: -1 });
+      registrations = await Registration.find().sort({ createdAt: -1 }).lean();
     } catch (err) {
       registrations = inMemoryRegistrations;
     }
@@ -328,7 +335,7 @@ export const getRegistrationById = async (req, res) => {
     try {
       registration = await Registration.findOne({
         $or: [{ registrationId: id }, { _id: id.match(/^[0-9a-fA-F]{24}$/) ? id : null }],
-      });
+      }).lean();
     } catch (err) {
       registration = inMemoryRegistrations.find((r) => r.registrationId === id || r._id === id);
     }
@@ -360,7 +367,7 @@ export const getAdminTeams = async (req, res) => {
   try {
     let list = [];
     try {
-      list = await Registration.find().sort({ createdAt: -1 });
+      list = await Registration.find().sort({ createdAt: -1 }).lean();
     } catch (err) {
       list = inMemoryRegistrations;
     }
@@ -410,13 +417,13 @@ export const updateTeamStatus = async (req, res) => {
         { $or: [{ registrationId: id }, { _id: id.match(/^[0-9a-fA-F]{24}$/) ? id : null }] },
         { status, remark },
         { new: true }
-      );
+      ).lean();
     } catch (err) {
       const idx = inMemoryRegistrations.findIndex((r) => r.registrationId === id || r._id === id);
       if (idx !== -1) {
         inMemoryRegistrations[idx].status = status;
         inMemoryRegistrations[idx].remark = remark;
-        saveDiskRegistrations(inMemoryRegistrations);
+        saveDiskRegistrationsAsync(inMemoryRegistrations);
         updated = inMemoryRegistrations[idx];
       }
     }
@@ -437,7 +444,7 @@ export const getRoundProgress = async (req, res) => {
   try {
     let list = [];
     try {
-      list = await Registration.find();
+      list = await Registration.find().lean();
     } catch (err) {
       list = inMemoryRegistrations;
     }
@@ -469,13 +476,13 @@ export const updateRound2Status = async (req, res) => {
         { $or: [{ registrationId: id }, { _id: id.match(/^[0-9a-fA-F]{24}$/) ? id : null }] },
         { round2Status: status, round2Remark: remark },
         { new: true }
-      );
+      ).lean();
     } catch (err) {
       const idx = inMemoryRegistrations.findIndex((r) => r.registrationId === id || r._id === id);
       if (idx !== -1) {
         inMemoryRegistrations[idx].round2Status = status;
         inMemoryRegistrations[idx].round2Remark = remark;
-        saveDiskRegistrations(inMemoryRegistrations);
+        saveDiskRegistrationsAsync(inMemoryRegistrations);
         updated = inMemoryRegistrations[idx];
       }
     }
@@ -500,13 +507,13 @@ export const updateRound2Evaluation = async (req, res) => {
         { $or: [{ registrationId: id }, { _id: id.match(/^[0-9a-fA-F]{24}$/) ? id : null }] },
         { round2Marks: marks, round2Score: total },
         { new: true }
-      );
+      ).lean();
     } catch (err) {
       const idx = inMemoryRegistrations.findIndex((r) => r.registrationId === id || r._id === id);
       if (idx !== -1) {
         inMemoryRegistrations[idx].round2Marks = marks;
         inMemoryRegistrations[idx].round2Score = total;
-        saveDiskRegistrations(inMemoryRegistrations);
+        saveDiskRegistrationsAsync(inMemoryRegistrations);
         updated = inMemoryRegistrations[idx];
       }
     }
@@ -531,13 +538,13 @@ export const updateRound3Evaluation = async (req, res) => {
         { $or: [{ registrationId: id }, { _id: id.match(/^[0-9a-fA-F]{24}$/) ? id : null }] },
         { round3Marks: marks, round3Score: total },
         { new: true }
-      );
+      ).lean();
     } catch (err) {
       const idx = inMemoryRegistrations.findIndex((r) => r.registrationId === id || r._id === id);
       if (idx !== -1) {
         inMemoryRegistrations[idx].round3Marks = marks;
         inMemoryRegistrations[idx].round3Score = total;
-        saveDiskRegistrations(inMemoryRegistrations);
+        saveDiskRegistrationsAsync(inMemoryRegistrations);
         updated = inMemoryRegistrations[idx];
       }
     }
@@ -547,3 +554,4 @@ export const updateRound3Evaluation = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
+
