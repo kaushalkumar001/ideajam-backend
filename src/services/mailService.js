@@ -267,41 +267,23 @@ export const sendRegistrationConfirmationEmails = async ({ teamName, leader, mem
   const fromName = process.env.EMAIL_FROM_NAME || 'IdeaJam 2026';
   const fromAddress = `"${fromName}" <${fromEmail}>`;
 
-  let leaderSent = false;
-  let membersSentCount = 0;
+  const leaderMailOptions = {
+    from: fromAddress,
+    to: leader.email,
+    subject: `🎉 Registration Confirmed: Team "${teamName}" - IdeaJam 2026`,
+    html: getLeaderEmailTemplate({
+      teamName,
+      leaderName: leader.name,
+      leaderPhone: leader.phone,
+      driveLink,
+      members,
+    }),
+  };
 
-  // 1. Send Email to Team Leader
-  try {
-    const leaderMailOptions = {
-      from: fromAddress,
-      to: leader.email,
-      subject: `🎉 Registration Confirmed: Team "${teamName}" - IdeaJam 2026`,
-      html: getLeaderEmailTemplate({
-        teamName,
-        leaderName: leader.name,
-        leaderPhone: leader.phone,
-        driveLink,
-        members,
-      }),
-    };
-
-    const leaderResult = await transporter.sendMail(leaderMailOptions);
-    console.log(`✅ [Nodemailer] Confirmation email successfully sent to Team Leader: ${leader.email} (MsgID: ${leaderResult.messageId})`);
-    leaderSent = true;
-  } catch (error) {
-    if (error.message && error.message.includes('454')) {
-      console.warn(`⚠️ [Nodemailer Notice] Google SMTP Rate-Limit (454): Too many login attempts in a short duration. Email queued for later retry.`);
-    } else {
-      console.error(`❌ [Nodemailer Error] Failed to send email to Leader (${leader.email}):`, error.message);
-    }
-  }
-
-  // 2. Send Emails to all Team Members
-  for (const member of members) {
-    if (!member.email || !member.name) continue;
-
-    try {
-      const memberMailOptions = {
+  const memberPromises = members
+    .filter((m) => m && m.email && m.name)
+    .map((member) =>
+      transporter.sendMail({
         from: fromAddress,
         to: member.email,
         subject: `🚀 You've joined Team "${teamName}" for IdeaJam 2026!`,
@@ -310,19 +292,31 @@ export const sendRegistrationConfirmationEmails = async ({ teamName, leader, mem
           memberName: member.name,
           leaderName: leader.name,
         }),
-      };
+      })
+    );
 
-      const memberResult = await transporter.sendMail(memberMailOptions);
-      console.log(`✅ [Nodemailer] Member email sent to: ${member.email} (MsgID: ${memberResult.messageId})`);
-      membersSentCount++;
-    } catch (err) {
-      if (err.message && err.message.includes('454')) {
-        console.warn(`⚠️ [Nodemailer Notice] Google SMTP Rate-Limit (454): Member email queued.`);
-      } else {
-        console.error(`❌ [Nodemailer Error] Failed to send email to member (${member.email}):`, err.message);
-      }
-    }
+  const [leaderResult, memberResults] = await Promise.all([
+    transporter.sendMail(leaderMailOptions).catch((err) => {
+      console.error(`❌ [Nodemailer Error] Leader email failed (${leader.email}):`, err.message);
+      return null;
+    }),
+    Promise.allSettled(memberPromises),
+  ]);
+
+  const leaderSent = Boolean(leaderResult?.messageId);
+  const membersSentCount = Array.isArray(memberResults)
+    ? memberResults.filter((r) => r.status === 'fulfilled').length
+    : 0;
+
+  if (leaderSent) {
+    console.log(`✅ [Nodemailer] Confirmation email sent to Team Leader: ${leader.email}`);
   }
+
+  return {
+    leaderSent,
+    membersSentCount,
+    totalTargetMembers: members.length,
+  };
 
   return {
     leaderSent,
