@@ -20,6 +20,7 @@ router.get('/registrations/:id', getRegistrationById);
 
 // Admin Control Center Endpoints
 router.get('/admin/teams', getAdminTeams);
+router.get('/admin/teams/:id', getRegistrationById);
 router.patch('/admin/teams/:id/status', updateTeamStatus);
 router.get('/admin/round-progress', getRoundProgress);
 router.patch('/admin/round2/:id/status', updateRound2Status);
