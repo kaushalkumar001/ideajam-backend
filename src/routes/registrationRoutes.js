@@ -9,9 +9,13 @@ import {
   updateRound2Status,
   updateRound2Evaluation,
   updateRound3Evaluation,
+  adminLogin,
 } from '../controllers/registrationController.js';
 
 const router = express.Router();
+
+// Admin Authentication Endpoint
+router.post('/admin/login', adminLogin);
 
 // Public Registration Endpoints
 router.post('/register', registerTeam);

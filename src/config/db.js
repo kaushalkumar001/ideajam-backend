@@ -4,22 +4,44 @@ dotenv.config();
 import mongoose from 'mongoose';
 
 /**
- * Connect to MongoDB database with optimized connection pool for high concurrency
+ * Connect to MongoDB database with optimized connection pool & serverless caching
  */
+let cached = global.mongoose;
+
+if (!cached) {
+  cached = global.mongoose = { conn: null, promise: null };
+}
+
 export const connectDB = async () => {
-  try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI, {
-      maxPoolSize: 100,
-      minPoolSize: 10,
+  if (cached.conn && mongoose.connection.readyState === 1) {
+    return cached.conn;
+  }
+
+  if (!cached.promise) {
+    const opts = {
+      bufferCommands: false,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
+    };
+
+    const mongoUri = process.env.MONGODB_URI;
+    if (!mongoUri) {
+      console.warn("⚠️ MONGODB_URI is not defined in environment variables.");
+      return null;
+    }
+
+    cached.promise = mongoose.connect(mongoUri, opts).then((m) => {
+      console.log(`✅ MongoDB Connected Successfully (${m.connection.host})`);
+      return m;
     });
-
-    console.log(`✅ MongoDB Connected Successfully (${conn.connection.host}) [Pool Size: 10-100]`);
-    return conn;
-  } catch (error) {
-    console.log(`⚠️  MongoDB Connection Notice: ${error.message}`);
-    return null;
   }
-};
 
+  try {
+    cached.conn = await cached.promise;
+  } catch (e) {
+    cached.promise = null;
+    console.error("⚠️ MongoDB Connection Error:", e.message);
+  }
+
+  return cached.conn;
+};

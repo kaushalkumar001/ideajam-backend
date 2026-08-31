@@ -73,6 +73,10 @@ export const registerTeam = async (req, res) => {
     const reqLeaderName = req.body.leaderName || (typeof req.body.leader === 'object' ? req.body.leader?.name : req.body.leader) || '';
     const reqLeaderEmail = req.body.leaderEmail || (typeof req.body.leader === 'object' ? req.body.leader?.email : req.body.email) || '';
     const reqLeaderPhone = req.body.leaderPhone || (typeof req.body.leader === 'object' ? req.body.leader?.phone : req.body.phone) || '';
+<<<<<<< HEAD
+=======
+    const reqProblemStatementId = req.body.problemStatementId || req.body.problemStatement || req.body.problem || req.body.problemId || '';
+>>>>>>> 983299c98109fea155a2c3cdc8d5e41663b0e165
     const reqDriveLink = req.body.driveLink || req.body.ppt || req.body.pptUrl || req.body.submissionUrl || '';
     const rawMembers = Array.isArray(req.body.members) ? req.body.members : [];
 
@@ -145,6 +149,10 @@ export const registerTeam = async (req, res) => {
     const cleanLeaderEmail = reqLeaderEmail.toString().trim().toLowerCase();
     const cleanLeaderName = reqLeaderName.toString().trim();
     const cleanLeaderPhone = reqLeaderPhone.toString().trim();
+<<<<<<< HEAD
+=======
+    const cleanProblemStatementId = (reqProblemStatementId || '').toString().trim();
+>>>>>>> 983299c98109fea155a2c3cdc8d5e41663b0e165
     const cleanDriveLink = (reqDriveLink || '').toString().trim();
     const cleanMembers = activeMembers.map((m, idx) => ({
       id: m.id || idx + 1,
@@ -190,6 +198,7 @@ export const registerTeam = async (req, res) => {
           phone: cleanLeaderPhone,
         },
         members: cleanMembers,
+        problemStatementId: cleanProblemStatementId,
         driveLink: cleanDriveLink,
         status: 'Pending',
       });
@@ -243,6 +252,7 @@ export const registerTeam = async (req, res) => {
           phone: cleanLeaderPhone,
         },
         members: cleanMembers,
+        problemStatementId: cleanProblemStatementId,
         driveLink: cleanDriveLink,
         status: 'Pending',
         createdAt: new Date(),
@@ -253,31 +263,31 @@ export const registerTeam = async (req, res) => {
       savedRegistration = fallbackRecord;
     }
 
-    // 4. Asynchronous Background Email Dispatch (Non-blocking for high concurrency)
-    setImmediate(async () => {
-      try {
-        const emailResult = await sendRegistrationConfirmationEmails({
-          teamName: cleanTeamName,
-          leader: {
-            name: cleanLeaderName,
-            email: cleanLeaderEmail,
-            phone: cleanLeaderPhone,
-          },
-          members: cleanMembers,
-          registrationId,
-        });
+    // 4. Automated Email Dispatch (Awaited for serverless compatibility)
+    try {
+      const emailResult = await sendRegistrationConfirmationEmails({
+        teamName: cleanTeamName,
+        leader: {
+          name: cleanLeaderName,
+          email: cleanLeaderEmail,
+          phone: cleanLeaderPhone,
+        },
+        members: cleanMembers,
+        problemStatementId: cleanProblemStatementId,
+        driveLink: cleanDriveLink,
+        registrationId,
+      });
 
-        if (isDbConnected && savedRegistration?._id) {
-          await Registration.findByIdAndUpdate(savedRegistration._id, {
-            'emailNotification.leaderDelivered': emailResult.leaderSent,
-            'emailNotification.membersDeliveredCount': emailResult.membersSentCount,
-            'emailNotification.lastSentAt': new Date(),
-          });
-        }
-      } catch (emailErr) {
-        console.error('⚠️ [Async Email Notice]:', emailErr.message);
+      if (isDbConnected && savedRegistration?._id) {
+        await Registration.findByIdAndUpdate(savedRegistration._id, {
+          'emailNotification.leaderDelivered': emailResult.leaderSent,
+          'emailNotification.membersDeliveredCount': emailResult.membersSentCount,
+          'emailNotification.lastSentAt': new Date(),
+        }).catch(() => {});
       }
-    });
+    } catch (emailErr) {
+      console.error('⚠️ [Email Dispatch Notice]:', emailErr.message);
+    }
 
     // 5. Immediate Fast HTTP Response
     return res.status(201).json({
@@ -292,6 +302,7 @@ export const registerTeam = async (req, res) => {
           phone: cleanLeaderPhone,
         },
         members: cleanMembers,
+        problemStatementId: cleanProblemStatementId,
         driveLink: cleanDriveLink,
         createdAt: savedRegistration.createdAt || new Date(),
       },
@@ -338,6 +349,10 @@ export const getAllRegistrations = async (req, res) => {
  */
 const formatTeamRecord = (item, idx = 0) => {
   if (!item) return null;
+<<<<<<< HEAD
+=======
+  const problemVal = item.problemStatementId || item.problem || item.problemStatement || 'Registered Solution';
+>>>>>>> 983299c98109fea155a2c3cdc8d5e41663b0e165
   return {
     id: item.registrationId || item._id || idx + 1,
     registrationId: item.registrationId || item._id,
@@ -348,7 +363,12 @@ const formatTeamRecord = (item, idx = 0) => {
     phone: item.leader?.phone || item.phone || '—',
     department: item.department || 'General',
     route: item.route || 'SIH Problem Statement',
+<<<<<<< HEAD
     problem: item.problem || 'Registered Solution',
+=======
+    problemStatementId: item.problemStatementId || problemVal,
+    problem: problemVal,
+>>>>>>> 983299c98109fea155a2c3cdc8d5e41663b0e165
     idea: item.idea || 'Idea submission for IdeaJam 2026',
     ppt: item.driveLink || item.ppt || '',
     driveLink: item.driveLink || item.ppt || '',
@@ -573,6 +593,51 @@ export const updateRound3Evaluation = async (req, res) => {
     return res.status(200).json({ success: true, data: updated });
   } catch (err) {
     return res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+/**
+ * Admin: POST /api/admin/login
+ * Secure authentication handled entirely on the backend
+ */
+export const adminLogin = async (req, res) => {
+  try {
+    const { email, username, password } = req.body;
+    const inputUser = (email || username || '').trim().toLowerCase();
+    const inputPass = (password || '').trim();
+
+    if (!inputUser || !inputPass) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email and password are required'
+      });
+    }
+
+    const expectedUser = (process.env.ADMIN_EMAIL || 'admin@gmail.com').trim().toLowerCase();
+    const expectedPass = (process.env.ADMIN_PASSWORD || '123456').trim();
+
+    if (inputUser === expectedUser && inputPass === expectedPass) {
+      const token = 'admin_session_' + crypto.randomBytes(24).toString('hex');
+      return res.status(200).json({
+        success: true,
+        message: 'Login successful',
+        token,
+        user: {
+          username: inputUser,
+          role: 'Super admin'
+        }
+      });
+    }
+
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid email or password'
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      message: 'Authentication failed due to server error'
+    });
   }
 };
 
