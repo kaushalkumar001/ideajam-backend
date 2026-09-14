@@ -3,7 +3,12 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import Registration from '../models/Registration.js';
+<<<<<<< HEAD
+import { sendRegistrationConfirmationEmails, sendCertificateEmail } from '../services/mailService.js';
+import { generateCertificateBuffer } from '../services/certificateService.js';
+=======
 import { sendRegistrationConfirmationEmails } from '../services/mailService.js';
+>>>>>>> 983299c98109fea155a2c3cdc8d5e41663b0e165
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -641,3 +646,214 @@ export const adminLogin = async (req, res) => {
   }
 };
 
+<<<<<<< HEAD
+/**
+ * Admin: GET /api/admin/certificate-preview?name=John+Doe
+ * Direct certificate image generator endpoint for live preview/download
+ */
+export const previewCertificate = async (req, res) => {
+  try {
+    const name = req.query.name || req.query.participant || 'Participant Name';
+    const buffer = await generateCertificateBuffer(name);
+
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Content-Disposition', `inline; filename="certificate_${encodeURIComponent(name)}.png"`);
+    return res.send(buffer);
+  } catch (err) {
+    console.error('Error generating certificate preview:', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to generate certificate preview',
+      error: err.message,
+    });
+  }
+};
+
+/**
+ * Helper: Send certificate to a single participant with buffer generation
+ */
+const deliverCertificateToPerson = async ({ name, email, teamName }) => {
+  try {
+    const cleanName = (name || '').trim();
+    const cleanEmail = (email || '').trim().toLowerCase();
+
+    if (!cleanEmail || !isValidEmail(cleanEmail)) {
+      return { success: false, name: cleanName, email: cleanEmail, error: 'Invalid email address' };
+    }
+
+    const certBuffer = await generateCertificateBuffer(cleanName || 'Participant');
+    const sendRes = await sendCertificateEmail({
+      recipientName: cleanName || 'Participant',
+      recipientEmail: cleanEmail,
+      teamName: teamName || 'IdeaJam 2026',
+      certificateBuffer: certBuffer,
+    });
+
+    return {
+      success: sendRes.success,
+      name: cleanName,
+      email: cleanEmail,
+      teamName,
+      error: sendRes.error || null,
+      messageId: sendRes.messageId || null,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      name,
+      email,
+      teamName,
+      error: err.message,
+    };
+  }
+};
+
+/**
+ * Admin: POST /api/admin/send-certificates
+ * Generate & dispatch personalized certificates to all registered team leaders & members
+ */
+export const sendCertificates = async (req, res) => {
+  try {
+    const { teamId, email: targetEmail, name: targetName } = req.body || {};
+
+    // 1. Fetch relevant registrations
+    let registrations = [];
+    try {
+      if (teamId) {
+        registrations = await Registration.find({
+          $or: [{ registrationId: teamId }, { _id: teamId.match(/^[0-9a-fA-F]{24}$/) ? teamId : null }],
+        }).lean();
+      } else {
+        registrations = await Registration.find().lean();
+      }
+    } catch (err) {
+      if (teamId) {
+        registrations = inMemoryRegistrations.filter((r) => r.registrationId === teamId || r._id === teamId);
+      } else {
+        registrations = inMemoryRegistrations;
+      }
+    }
+
+    // If single target email and name provided directly in request body
+    if (targetEmail && isValidEmail(targetEmail)) {
+      const singleRes = await deliverCertificateToPerson({
+        name: targetName || 'IdeaJam Participant',
+        email: targetEmail,
+        teamName: 'IdeaJam 2026',
+      });
+
+      return res.status(200).json({
+        success: singleRes.success,
+        message: singleRes.success
+          ? `Certificate sent successfully to ${targetEmail} (${targetName || 'Participant'})`
+          : `Failed sending certificate to ${targetEmail}: ${singleRes.error}`,
+        data: singleRes,
+      });
+    }
+
+    if (!registrations || registrations.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No registered teams found to send certificates.',
+      });
+    }
+
+    // 2. Extract unique recipients across teams (leaders and members)
+    const recipientMap = new Map(); // email -> { name, email, teamName }
+
+    for (const team of registrations) {
+      const teamName = team.teamName || 'IdeaJam Team';
+
+      // Team Leader
+      if (team.leader && team.leader.email) {
+        const leaderEmail = team.leader.email.trim().toLowerCase();
+        if (isValidEmail(leaderEmail) && !recipientMap.has(leaderEmail)) {
+          recipientMap.set(leaderEmail, {
+            name: team.leader.name || 'Team Leader',
+            email: leaderEmail,
+            teamName,
+          });
+        }
+      }
+
+      // Team Members
+      if (Array.isArray(team.members)) {
+        for (const member of team.members) {
+          if (member && member.email) {
+            const memberEmail = member.email.trim().toLowerCase();
+            if (isValidEmail(memberEmail) && !recipientMap.has(memberEmail)) {
+              recipientMap.set(memberEmail, {
+                name: member.name || 'Team Member',
+                email: memberEmail,
+                teamName,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    const recipients = Array.from(recipientMap.values());
+
+    if (recipients.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'No valid recipient email addresses found in registrations.',
+      });
+    }
+
+    console.log(`🚀 [Certificates] Starting bulk certificate dispatch to ${recipients.length} recipients across ${registrations.length} teams...`);
+
+    // 3. Process dispatch in controlled batches of 5 to avoid SMTP rate limiting
+    const BATCH_SIZE = 5;
+    const results = [];
+
+    for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
+      const batch = recipients.slice(i, i + BATCH_SIZE);
+      const batchPromises = batch.map((r) => deliverCertificateToPerson(r));
+      const batchResults = await Promise.all(batchPromises);
+      results.push(...batchResults);
+
+      // Short delay between batches
+      if (i + BATCH_SIZE < recipients.length) {
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
+    }
+
+    const successCount = results.filter((r) => r.success).length;
+    const failedCount = results.length - successCount;
+
+    console.log(`✅ [Certificates] Dispatch completed: ${successCount} sent, ${failedCount} failed.`);
+
+    return res.status(200).json({
+      success: true,
+      message: `Certificates dispatched! Successfully sent to ${successCount} of ${recipients.length} participants across ${registrations.length} teams.`,
+      stats: {
+        totalTeams: registrations.length,
+        totalRecipients: recipients.length,
+        sentCount: successCount,
+        failedCount: failedCount,
+      },
+      results,
+    });
+  } catch (error) {
+    console.error('❌ [Certificates Error]:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'An error occurred while sending certificates: ' + error.message,
+    });
+  }
+};
+
+/**
+ * Admin: POST /api/admin/teams/:id/send-certificate
+ * Dispatch certificates to a specific team's leader & members
+ */
+export const sendTeamCertificate = async (req, res) => {
+  req.body = { ...(req.body || {}), teamId: req.params.id };
+  return sendCertificates(req, res);
+};
+
+
+=======
+>>>>>>> 983299c98109fea155a2c3cdc8d5e41663b0e165

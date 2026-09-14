@@ -317,6 +317,135 @@ export const sendRegistrationConfirmationEmails = async ({ teamName, leader, mem
     membersSentCount,
     totalTargetMembers: members.length,
   };
+<<<<<<< HEAD
+};
+
+/**
+ * Generate Certificate HTML Email Template
+ */
+export const getCertificateEmailTemplate = ({ recipientName, teamName }) => {
+  return `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>IdeaJam 2026 Certificate of Achievement</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #0B111B; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; color: #ffffff;">
+  <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #0B111B; padding: 40px 10px;">
+    <tr>
+      <td align="center">
+        <!-- Main Container -->
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 640px; background-color: #111A29; border-radius: 20px; border: 1px solid rgba(27, 182, 131, 0.25); overflow: hidden; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);">
+          
+          <!-- Top Header Banner -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #111A29 0%, #16263D 100%); padding: 36px 32px; text-align: center; border-bottom: 1px solid rgba(255, 255, 255, 0.08);">
+              <div style="display: inline-block; padding: 6px 16px; background-color: rgba(27, 182, 131, 0.15); border: 1px solid rgba(27, 182, 131, 0.4); border-radius: 50px; margin-bottom: 16px;">
+                <span style="color: #1BB683; font-size: 12px; font-weight: 700; letter-spacing: 2px; text-transform: uppercase;">🏆 CERTIFICATE OF ACHIEVEMENT</span>
+              </div>
+              <h1 style="margin: 0; font-size: 30px; font-weight: 900; letter-spacing: -0.5px; color: #ffffff;">
+                IdeaJam <span style="color: #1BB683;">2026</span>
+              </h1>
+              <p style="margin: 8px 0 0 0; color: #94a3b8; font-size: 15px;">
+                Organised by The Uniques Community
+              </p>
+            </td>
+          </tr>
+
+          <!-- Main Details -->
+          <tr>
+            <td style="padding: 28px 32px;">
+              <p style="color: #e2e8f0; font-size: 16px; line-height: 1.6; margin: 0 0 16px 0;">
+                Dear <strong style="color: #ffffff;">${recipientName}</strong>,
+              </p>
+              <p style="color: #cbd5e1; font-size: 14px; line-height: 1.7; margin: 0 0 16px 0;">
+                Congratulations on your active participation and successful completion in <strong>IdeaJam 2026</strong> as part of team <strong style="color: #1BB683;">${teamName || 'IdeaJam Team'}</strong>!
+              </p>
+              <p style="color: #cbd5e1; font-size: 14px; line-height: 1.7; margin: 0 0 24px 0;">
+                Your outstanding performance, innovation, and dedication demonstrated throughout the competition are highly commendable. Please find your official certificate attached with this email and previewed below:
+              </p>
+
+              <!-- Certificate Preview Image -->
+              <div style="background-color: #172336; border-radius: 12px; padding: 12px; text-align: center; margin-bottom: 24px; border: 1px solid rgba(255, 255, 255, 0.08);">
+                <img src="cid:certificateImage" alt="Certificate of Achievement - ${recipientName}" style="max-width: 100%; height: auto; border-radius: 8px; display: block; margin: 0 auto; box-shadow: 0 4px 15px rgba(0,0,0,0.3);" />
+              </div>
+
+              <p style="color: #94a3b8; font-size: 13px; line-height: 1.5; margin: 0 0 16px 0; text-align: center;">
+                <em>Note: Your high-resolution certificate is attached to this email. You can download and save it anytime.</em>
+              </p>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td style="background-color: #0d1522; padding: 24px 32px; text-align: center; border-top: 1px solid rgba(255, 255, 255, 0.06);">
+              <p style="margin: 0 0 8px 0; color: #64748b; font-size: 12px;">
+                IdeaJam 2026 Organizing Committee • The Uniques Community
+              </p>
+              <p style="margin: 0; color: #475569; font-size: 11px;">
+                Director Operations: Mr. Ankur Gill • SVIET
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+  `;
+};
+
+/**
+ * Send personalized certificate email to a single recipient
+ */
+export const sendCertificateEmail = async ({ recipientName, recipientEmail, teamName, certificateBuffer }) => {
+  const transporter = getTransporter();
+
+  if (!transporter) {
+    console.warn(`⚠️ [Nodemailer Notice] EMAIL_USER or EMAIL_PASS missing in .env. Cannot dispatch certificate to ${recipientEmail}.`);
+    return { success: false, reason: 'Email credentials missing in .env' };
+  }
+
+  const fromEmail = (process.env.EMAIL_USER || '').trim();
+  const fromName = process.env.EMAIL_FROM_NAME || 'IdeaJam 2026';
+  const fromAddress = `"${fromName}" <${fromEmail}>`;
+
+  const safeFilename = `IdeaJam2026_Certificate_${(recipientName || 'Participant').replace(/[^a-zA-Z0-9_-]/g, '_')}.png`;
+
+  const mailOptions = {
+    from: fromAddress,
+    to: recipientEmail,
+    subject: `🎓 Official Certificate of Achievement: ${recipientName} - IdeaJam 2026`,
+    html: getCertificateEmailTemplate({
+      recipientName,
+      teamName,
+    }),
+    attachments: [
+      {
+        filename: safeFilename,
+        content: certificateBuffer,
+        contentType: 'image/png',
+        cid: 'certificateImage', // For inline display in HTML
+      },
+    ],
+  };
+
+  try {
+    const result = await transporter.sendMail(mailOptions);
+    console.log(`✅ [Certificate Sent] Email delivered to ${recipientName} (${recipientEmail})`);
+    return { success: true, messageId: result?.messageId };
+  } catch (error) {
+    console.error(`❌ [Certificate Error] Failed sending to ${recipientEmail}:`, error.message);
+    return { success: false, error: error.message };
+  }
+};
+
+
+
+=======
 
   return {
     leaderSent,
@@ -326,3 +455,4 @@ export const sendRegistrationConfirmationEmails = async ({ teamName, leader, mem
 };
 
 
+>>>>>>> 983299c98109fea155a2c3cdc8d5e41663b0e165
