@@ -3,8 +3,12 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import Registration from '../models/Registration.js';
+<<<<<<< HEAD
 import { sendRegistrationConfirmationEmails, sendCertificateEmail } from '../services/mailService.js';
 import { generateCertificateBuffer } from '../services/certificateService.js';
+=======
+import { sendRegistrationConfirmationEmails } from '../services/mailService.js';
+>>>>>>> 983299c98109fea155a2c3cdc8d5e41663b0e165
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -629,6 +633,7 @@ export const adminLogin = async (req, res) => {
   }
 };
 
+<<<<<<< HEAD
 /**
  * Admin: GET /api/admin/certificate-preview?name=John+Doe
  * Direct certificate image generator endpoint for live preview/download
@@ -837,3 +842,5 @@ export const sendTeamCertificate = async (req, res) => {
 };
 
 
+=======
+>>>>>>> 983299c98109fea155a2c3cdc8d5e41663b0e165

@@ -317,6 +317,7 @@ export const sendRegistrationConfirmationEmails = async ({ teamName, leader, mem
     membersSentCount,
     totalTargetMembers: members.length,
   };
+<<<<<<< HEAD
 };
 
 /**
@@ -444,3 +445,14 @@ export const sendCertificateEmail = async ({ recipientName, recipientEmail, team
 
 
 
+=======
+
+  return {
+    leaderSent,
+    membersSentCount,
+    totalTargetMembers: members.length,
+  };
+};
+
+
+>>>>>>> 983299c98109fea155a2c3cdc8d5e41663b0e165
