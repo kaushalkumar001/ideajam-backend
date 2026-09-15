@@ -745,7 +745,19 @@ export const sendCertificates = async (req, res) => {
     const recipientMap = new Map(); // email -> { name, email, teamName }
 
     for (const team of registrations) {
-      const teamName = team.teamName || 'IdeaJam Team';
+      const teamName = team.teamName || team.team || 'IdeaJam Team';
+
+      // Direct participant record (name, email)
+      if (team.email) {
+        const directEmail = team.email.trim().toLowerCase();
+        if (isValidEmail(directEmail) && !recipientMap.has(directEmail)) {
+          recipientMap.set(directEmail, {
+            name: team.name || team.leader?.name || 'Participant',
+            email: directEmail,
+            teamName,
+          });
+        }
+      }
 
       // Team Leader
       if (team.leader && team.leader.email) {

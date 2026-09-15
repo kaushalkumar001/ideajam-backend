@@ -1,7 +1,15 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
+import dns from 'dns';
 import mongoose from 'mongoose';
+
+// Ensure reliable DNS resolution for MongoDB Atlas SRV strings
+try {
+  dns.setServers(['8.8.8.8', '8.8.4.4', '1.1.1.1']);
+} catch (dnsErr) {
+  // Gracefully fallback if setServers is restricted in current runtime
+}
 
 /**
  * Connect to MongoDB database with optimized connection pool & serverless caching
@@ -20,7 +28,7 @@ export const connectDB = async () => {
   if (!cached.promise) {
     const opts = {
       bufferCommands: false,
-      serverSelectionTimeoutMS: 5000,
+      serverSelectionTimeoutMS: 10000,
       socketTimeoutMS: 45000,
     };
 
@@ -31,7 +39,7 @@ export const connectDB = async () => {
     }
 
     cached.promise = mongoose.connect(mongoUri, opts).then((m) => {
-      console.log(`✅ MongoDB Connected Successfully (${m.connection.host})`);
+      console.log(`✅ MongoDB Connected Successfully (${m.connection.host}, db: ${m.connection.name})`);
       return m;
     });
   }
@@ -45,3 +53,4 @@ export const connectDB = async () => {
 
   return cached.conn;
 };
+
