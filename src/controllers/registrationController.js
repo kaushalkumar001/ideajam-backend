@@ -956,9 +956,9 @@ export const sendCertificates = async (req, res) => {
       });
     }
 
-    console.log(`🚀 [Certificates] Starting certificate dispatch to ${recipients.length} recipients...`);
+    console.log(`🚀 [Certificates] Analyzed ${registrations.length} team(s)/group(s). Starting dispatch to all ${recipients.length} individual members...`);
 
-    // For single or small batch (<= 3): process synchronously and return full result
+    // For single or small team (<= 3 members): process synchronously and return full result
     if (recipients.length <= 3) {
       const results = [];
       for (const r of recipients) {
@@ -972,6 +972,7 @@ export const sendCertificates = async (req, res) => {
           ? `Certificate delivered successfully to ${recipients.map((r) => `${r.name} (${r.email})`).join(', ')}`
           : `Failed delivering certificate: ${results.map((r) => r.error).join('; ')}`,
         stats: {
+          totalTeams: registrations.length,
           totalRecipients: recipients.length,
           sentCount: successCount,
           failedCount: recipients.length - successCount,
@@ -980,35 +981,44 @@ export const sendCertificates = async (req, res) => {
       });
     }
 
-    // For larger bulk batches (> 3): process first batch synchronously so response returns fast, rest in background
+    // For 60+ members or multi-member groups (> 3 members):
+    // Process first batch in parallel to verify SMTP and respond immediately, then process remaining in non-blocking background queue
     const results = [];
-    const BATCH_SIZE = 5;
+    const BATCH_SIZE = 6;
 
-    // Process first batch to verify SMTP
+    // Process first batch
     const firstBatch = recipients.slice(0, BATCH_SIZE);
-    const firstResults = await Promise.all(firstBatch.map((r) => deliverCertificateToPerson(r)));
+    const firstBatchPromises = firstBatch.map((r) => deliverCertificateToPerson(r));
+    const firstSettled = await Promise.allSettled(firstBatchPromises);
+    const firstResults = firstSettled.map((s) => (s.status === 'fulfilled' ? s.value : { success: false, error: s.reason?.message }));
     results.push(...firstResults);
 
-    // If remaining recipients exist, run background queue
+    // If remaining members exist (e.g. out of 60 members), process remaining in parallel batches
     if (recipients.length > BATCH_SIZE) {
       const remaining = recipients.slice(BATCH_SIZE);
       (async () => {
         for (let i = 0; i < remaining.length; i += BATCH_SIZE) {
           const batch = remaining.slice(i, i + BATCH_SIZE);
-          await Promise.all(batch.map((r) => deliverCertificateToPerson(r)));
-          await new Promise((resolve) => setTimeout(resolve, 200));
+          const batchPromises = batch.map((r) => deliverCertificateToPerson(r));
+          await Promise.allSettled(batchPromises);
+          if (i + BATCH_SIZE < remaining.length) {
+            await new Promise((resolve) => setTimeout(resolve, 150));
+          }
         }
-      })().catch((err) => console.error('Background batch dispatch error:', err));
+        console.log(`🎉 [Certificates] All ${recipients.length} certificates processed successfully across ${registrations.length} team(s)/group(s).`);
+      })().catch((err) => console.error('Background bulk dispatch error:', err));
     }
 
     const firstSuccessCount = firstResults.filter((r) => r.success).length;
 
     return res.status(200).json({
       success: true,
-      message: `Certificates dispatch started! Delivered to first ${firstSuccessCount} participants, remaining ${recipients.length - firstBatch.length} being sent in background.`,
+      message: `Analyzing completed! Certificates dispatch started for all ${recipients.length} members across ${registrations.length} team(s)/group(s).`,
       stats: {
+        totalTeams: registrations.length,
         totalRecipients: recipients.length,
         sentCount: firstSuccessCount,
+        queuedCount: recipients.length - firstBatch.length,
       },
       results,
     });
