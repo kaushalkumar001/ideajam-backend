@@ -22,6 +22,21 @@ const getTemplateImage = async () => {
 };
 
 /**
+ * Clean & format participant name (e.g. "kundan kumar" -> "Kundan Kumar")
+ */
+export const formatParticipantName = (rawName) => {
+  if (!rawName) return 'Participant';
+  const trimmed = rawName.toString().trim();
+  if (trimmed === trimmed.toLowerCase()) {
+    return trimmed
+      .split(/\s+/)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(' ');
+  }
+  return trimmed;
+};
+
+/**
  * Generate a personalized certificate buffer (PNG) for a participant
  * @param {string} participantName - Name of the leader or team member
  * @returns {Promise<Buffer>} - PNG image buffer of the personalized certificate
@@ -34,11 +49,8 @@ export const generateCertificateBuffer = async (participantName = 'Participant')
   // Draw base certificate template
   ctx.drawImage(template, 0, 0);
 
-  // Format participant name (Title Case / Uppercase)
-  const cleanName = (participantName || 'Participant')
-    .toString()
-    .trim()
-    .toUpperCase();
+  // Format participant name cleanly from input / database record
+  const cleanName = formatParticipantName(participantName);
 
   // Baseline position above the underline: line is around y = 425
   const centerX = template.width / 2;
