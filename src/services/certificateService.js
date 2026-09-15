@@ -48,18 +48,41 @@ const getTemplateImage = async () => {
 };
 
 /**
- * Clean & format participant name (e.g. "kundan kumar" -> "Kundan Kumar")
+ * Clean & format participant name (e.g. "kundan kumar" -> "Kundan Kumar", "MUNAZA HILAL" -> "Munaza Hilal")
  */
 export const formatParticipantName = (rawName) => {
   if (!rawName) return 'Participant';
-  const trimmed = rawName.toString().trim();
-  if (trimmed === trimmed.toLowerCase()) {
-    return trimmed
-      .split(/\s+/)
-      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-      .join(' ');
+  let str = rawName.toString().trim().replace(/[\t\r\n]+/g, ' ').replace(/\s+/g, ' ');
+
+  const lower = str.toLowerCase();
+  if (
+    !str ||
+    lower === '—' ||
+    lower === '-' ||
+    lower === 'undefined' ||
+    lower === 'null' ||
+    lower === 'none' ||
+    lower === 'na' ||
+    lower === 'n/a' ||
+    lower === 'participant' ||
+    lower === 'team leader' ||
+    lower === 'team member'
+  ) {
+    return 'Participant';
   }
-  return trimmed;
+
+  // If an email address was passed as a name fallback, extract friendly name
+  if (str.includes('@')) {
+    const prefix = str.split('@')[0].replace(/[0-9._-]+/g, ' ').trim();
+    str = prefix || 'Participant';
+  }
+
+  // Proper Title Case formatting
+  return str
+    .split(' ')
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
 };
 
 /**

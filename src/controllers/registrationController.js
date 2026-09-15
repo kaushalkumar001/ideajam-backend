@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import Registration from '../models/Registration.js';
 import { sendRegistrationConfirmationEmails, sendCertificateEmail } from '../services/mailService.js';
-import { generateCertificateBuffer } from '../services/certificateService.js';
+import { generateCertificateBuffer, formatParticipantName } from '../services/certificateService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -745,20 +745,127 @@ export const previewCertificate = async (req, res) => {
 };
 
 /**
+ * Helper: Extract distinct recipients across team leaders, members, and direct records
+ */
+const extractRecipientsFromTeams = (teamsList) => {
+  const recipientMap = new Map();
+
+  const addRecipient = (rawName, rawEmail, teamName) => {
+    if (!rawEmail || typeof rawEmail !== 'string') return;
+    const cleanEmail = rawEmail.trim().toLowerCase();
+    if (!isValidEmail(cleanEmail)) return;
+
+    let candidateName = (rawName || '').toString().trim();
+    const lower = candidateName.toLowerCase();
+    const isPlaceholder = (
+      !candidateName ||
+      lower === '—' ||
+      lower === '-' ||
+      lower === 'undefined' ||
+      lower === 'null' ||
+      lower === 'none' ||
+      lower === 'na' ||
+      lower === 'n/a' ||
+      lower === 'team leader' ||
+      lower === 'team member' ||
+      lower === 'participant'
+    );
+
+    if (isPlaceholder) {
+      const prefix = cleanEmail.split('@')[0].replace(/[0-9._-]+/g, ' ').trim();
+      candidateName = prefix
+        ? prefix.split(/\s+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')
+        : 'Participant';
+    }
+
+    const formattedName = formatParticipantName(candidateName);
+
+    if (recipientMap.has(cleanEmail)) {
+      const existing = recipientMap.get(cleanEmail);
+      if (existing.name === 'Participant' && formattedName !== 'Participant') {
+        recipientMap.set(cleanEmail, {
+          name: formattedName,
+          email: cleanEmail,
+          teamName: teamName || existing.teamName || 'IdeaJam 2026',
+        });
+      }
+      return;
+    }
+
+    recipientMap.set(cleanEmail, {
+      name: formattedName,
+      email: cleanEmail,
+      teamName: teamName || 'IdeaJam 2026',
+    });
+  };
+
+  for (const team of teamsList) {
+    if (!team) continue;
+    const teamDisplayName = team.teamName || team.team || (team.name ? `${team.name}'s Team` : 'IdeaJam 2026');
+
+    // 1. Direct participant record fields
+    if (team.email) {
+      const directName = team.name || team.fullName || team.participantName || team.studentName || team.userName || team.leaderName;
+      addRecipient(directName, team.email, teamDisplayName);
+    }
+
+    // 2. Leader
+    if (team.leader) {
+      if (typeof team.leader === 'object') {
+        const leaderName = team.leader.name || team.leader.fullName || team.leader.participantName || team.leaderName || team.name;
+        const leaderEmail = team.leader.email || team.leaderEmail || team.email;
+        addRecipient(leaderName, leaderEmail, teamDisplayName);
+      } else if (typeof team.leader === 'string' && team.leader !== '—') {
+        addRecipient(team.leader, team.leaderEmail || team.email, teamDisplayName);
+      }
+    }
+
+    // 3. Team Members Array
+    if (Array.isArray(team.members)) {
+      for (const m of team.members) {
+        if (!m) continue;
+        if (typeof m === 'object') {
+          const memberName = m.name || m.fullName || m.memberName || m.participantName || m.studentName;
+          const memberEmail = m.email || m.memberEmail || m.userEmail;
+          addRecipient(memberName, memberEmail, teamDisplayName);
+        } else if (typeof m === 'string') {
+          if (isValidEmail(m)) {
+            addRecipient('', m, teamDisplayName);
+          } else {
+            addRecipient(m, '', teamDisplayName);
+          }
+        }
+      }
+    }
+
+    // 4. Explicit member property fields
+    for (let i = 1; i <= 10; i++) {
+      const mName = team[`member${i}_name`] || team[`member${i}Name`];
+      const mEmail = team[`member${i}_email`] || team[`member${i}Email`];
+      if (mEmail) {
+        addRecipient(mName, mEmail, teamDisplayName);
+      }
+    }
+  }
+
+  return Array.from(recipientMap.values());
+};
+
+/**
  * Helper: Send certificate to a single participant with buffer generation
  */
 const deliverCertificateToPerson = async ({ name, email, teamName }) => {
   try {
-    const cleanName = (name || '').trim();
+    const cleanName = formatParticipantName(name || 'Participant');
     const cleanEmail = (email || '').trim().toLowerCase();
 
     if (!cleanEmail || !isValidEmail(cleanEmail)) {
       return { success: false, name: cleanName, email: cleanEmail, error: 'Invalid email address' };
     }
 
-    const certBuffer = await generateCertificateBuffer(cleanName || 'Participant');
+    const certBuffer = await generateCertificateBuffer(cleanName);
     const sendRes = await sendCertificateEmail({
-      recipientName: cleanName || 'Participant',
+      recipientName: cleanName,
       recipientEmail: cleanEmail,
       teamName: teamName || 'IdeaJam 2026',
       certificateBuffer: certBuffer,
@@ -775,7 +882,7 @@ const deliverCertificateToPerson = async ({ name, email, teamName }) => {
   } catch (err) {
     return {
       success: false,
-      name,
+      name: formatParticipantName(name || 'Participant'),
       email,
       teamName,
       error: err.message,
@@ -819,7 +926,7 @@ export const sendCertificates = async (req, res) => {
       (typeof lookupId === 'string' && isValidEmail(lookupId) ? lookupId : '')
     ).toString().trim().toLowerCase();
 
-    const detectedName = (
+    let detectedName = (
       directNameInput ||
       leaderName ||
       (req.body?.name && req.body.name !== detectedEmail ? req.body.name : '') ||
@@ -828,7 +935,35 @@ export const sendCertificates = async (req, res) => {
 
     // 1. Direct single email dispatch
     if (detectedEmail && isValidEmail(detectedEmail)) {
-      const cleanName = detectedName || 'Participant';
+      // If name is missing or placeholder, look up user in DB to retrieve their exact registered name
+      if (!detectedName || detectedName.toLowerCase() === 'participant') {
+        try {
+          const dbUser = await Registration.findOne({
+            $or: [
+              { email: detectedEmail },
+              { 'leader.email': detectedEmail },
+              { 'members.email': detectedEmail },
+            ],
+          }).lean();
+
+          if (dbUser) {
+            if (dbUser.email === detectedEmail) {
+              detectedName = dbUser.name || dbUser.fullName || dbUser.participantName || dbUser.studentName || '';
+            } else if (dbUser.leader?.email === detectedEmail) {
+              detectedName = dbUser.leader.name || '';
+            } else if (Array.isArray(dbUser.members)) {
+              const matchedMember = dbUser.members.find((m) => m && m.email?.toLowerCase() === detectedEmail);
+              if (matchedMember) {
+                detectedName = matchedMember.name || '';
+              }
+            }
+          }
+        } catch (dbLookupErr) {
+          console.warn('Single certificate DB name lookup notice:', dbLookupErr.message);
+        }
+      }
+
+      const cleanName = formatParticipantName(detectedName || 'Participant');
       const singleRes = await deliverCertificateToPerson({
         name: cleanName,
         email: detectedEmail,
@@ -892,7 +1027,6 @@ export const sendCertificates = async (req, res) => {
     }
 
     if (!registrations || registrations.length === 0) {
-      // If direct array of recipient objects with name & email was provided
       if (Array.isArray(rawArray) && rawArray.length > 0 && typeof rawArray[0] === 'object' && rawArray[0]?.email) {
         registrations = rawArray;
       } else {
@@ -905,56 +1039,7 @@ export const sendCertificates = async (req, res) => {
     }
 
     // 3. Extract unique recipients across teams & individual participants
-    const recipientMap = new Map(); // email -> { name, email, teamName }
-
-    for (const team of registrations) {
-      const teamName = team.teamName || team.team || (team.name ? `${team.name}'s Team` : 'IdeaJam 2026');
-
-      // Direct participant record (name, email)
-      if (team.email) {
-        const directEmail = team.email.trim().toLowerCase();
-        if (isValidEmail(directEmail) && !recipientMap.has(directEmail)) {
-          const directName = (team.name || team.fullName || team.participantName || team.studentName || 'Participant').toString().trim();
-          recipientMap.set(directEmail, {
-            name: directName,
-            email: directEmail,
-            teamName,
-          });
-        }
-      }
-
-      // Team Leader
-      if (team.leader && (typeof team.leader === 'object' ? team.leader.email : team.email)) {
-        const leaderEmail = (typeof team.leader === 'object' ? team.leader.email : team.email || '').trim().toLowerCase();
-        if (isValidEmail(leaderEmail) && !recipientMap.has(leaderEmail)) {
-          const leaderName = (typeof team.leader === 'object' ? (team.leader.name || team.leaderName) : team.leader || team.name || 'Team Leader').toString().trim();
-          recipientMap.set(leaderEmail, {
-            name: leaderName,
-            email: leaderEmail,
-            teamName,
-          });
-        }
-      }
-
-      // Team Members
-      if (Array.isArray(team.members)) {
-        for (const member of team.members) {
-          if (member && member.email) {
-            const memberEmail = member.email.trim().toLowerCase();
-            if (isValidEmail(memberEmail) && !recipientMap.has(memberEmail)) {
-              const memberName = (member.name || member.fullName || member.memberName || 'Team Member').toString().trim();
-              recipientMap.set(memberEmail, {
-                name: memberName,
-                email: memberEmail,
-                teamName,
-              });
-            }
-          }
-        }
-      }
-    }
-
-    const recipients = Array.from(recipientMap.values());
+    const recipients = extractRecipientsFromTeams(registrations);
 
     if (recipients.length === 0) {
       return res.status(400).json({
@@ -996,7 +1081,6 @@ export const sendCertificates = async (req, res) => {
     }
 
     // For 60+ members or multi-member groups (> 3 members):
-    // Process first batch in parallel to verify SMTP and respond immediately, then process remaining in non-blocking background queue
     const results = [];
     const BATCH_SIZE = 6;
 
@@ -1007,7 +1091,7 @@ export const sendCertificates = async (req, res) => {
     const firstResults = firstSettled.map((s) => (s.status === 'fulfilled' ? s.value : { success: false, error: s.reason?.message }));
     results.push(...firstResults);
 
-    // If remaining members exist (e.g. out of 60 members), process remaining in parallel batches
+    // Process remainder in background queue
     if (recipients.length > BATCH_SIZE) {
       const remaining = recipients.slice(BATCH_SIZE);
       (async () => {
@@ -1079,53 +1163,7 @@ export const sendCertificatesPage = async (req, res) => {
     }
 
     // Extract all recipients across teams (Leader + all members)
-    const recipientMap = new Map();
-    for (const team of teams) {
-      const teamName = team.teamName || team.team || (team.name ? `${team.name}'s Team` : 'IdeaJam 2026');
-
-      // Direct participant
-      if (team.email && isValidEmail(team.email)) {
-        const directEmail = team.email.trim().toLowerCase();
-        if (!recipientMap.has(directEmail)) {
-          recipientMap.set(directEmail, {
-            name: team.name || team.fullName || team.participantName || 'Participant',
-            email: directEmail,
-            teamName,
-          });
-        }
-      }
-
-      // Leader
-      if (team.leader && (typeof team.leader === 'object' ? team.leader.email : team.email)) {
-        const leaderEmail = (typeof team.leader === 'object' ? team.leader.email : team.email || '').trim().toLowerCase();
-        if (isValidEmail(leaderEmail) && !recipientMap.has(leaderEmail)) {
-          const leaderName = (typeof team.leader === 'object' ? (team.leader.name || team.leaderName) : team.leader || team.name || 'Team Leader').toString().trim();
-          recipientMap.set(leaderEmail, {
-            name: leaderName,
-            email: leaderEmail,
-            teamName,
-          });
-        }
-      }
-
-      // Members
-      if (Array.isArray(team.members)) {
-        for (const m of team.members) {
-          if (m && m.email && isValidEmail(m.email)) {
-            const memberEmail = m.email.trim().toLowerCase();
-            if (!recipientMap.has(memberEmail)) {
-              recipientMap.set(memberEmail, {
-                name: (m.name || m.fullName || m.memberName || 'Team Member').toString().trim(),
-                email: memberEmail,
-                teamName,
-              });
-            }
-          }
-        }
-      }
-    }
-
-    const recipients = Array.from(recipientMap.values());
+    const recipients = extractRecipientsFromTeams(teams);
     const totalRecipients = recipients.length;
 
     if (totalRecipients === 0) {
