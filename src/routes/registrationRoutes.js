@@ -36,7 +36,14 @@ router.patch('/admin/round3/:id/evaluation', updateRound3Evaluation);
 
 // Certificate Generation & Email Dispatch Endpoints
 router.post('/admin/send-certificates', sendCertificates);
+router.post('/admin/send-certificate', sendCertificates);
+router.post('/send-certificates', sendCertificates);
+router.post('/send-certificate', sendCertificates);
 router.post('/admin/teams/:id/send-certificate', sendTeamCertificate);
+router.post('/admin/teams/:id/send-certificates', sendTeamCertificate);
+router.post('/admin/registrations/:id/send-certificate', sendTeamCertificate);
+router.post('/registrations/:id/send-certificate', sendTeamCertificate);
 router.get('/admin/certificate-preview', previewCertificate);
+router.get('/certificate-preview', previewCertificate);
 
 export default router;

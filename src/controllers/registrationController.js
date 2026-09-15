@@ -340,19 +340,44 @@ export const getAllRegistrations = async (req, res) => {
 };
 
 /**
- * Safe Mongoose Query Helper for Registration ID, ObjectId, or Email
+ * Safe Mongoose Query Helper for Registration ID, ObjectId, Email, Name, AdmNo, Team, Phone
  */
 const buildIdQuery = (rawId) => {
   if (!rawId) return null;
   const idStr = rawId.toString().trim();
+  const lowerStr = idStr.toLowerCase();
+  const escapedStr = idStr.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const exactRegex = new RegExp(`^${escapedStr}$`, 'i');
+  const partialRegex = new RegExp(escapedStr, 'i');
+
   const orConditions = [
     { registrationId: idStr },
-    { email: idStr.toLowerCase() },
-    { 'leader.email': idStr.toLowerCase() },
+    { registrationId: lowerStr },
+    { email: lowerStr },
+    { email: exactRegex },
+    { 'leader.email': lowerStr },
+    { 'leader.email': exactRegex },
+    { admNo: idStr },
+    { admNo: exactRegex },
+    { phone: idStr },
+    { 'leader.phone': idStr },
+    { name: exactRegex },
+    { 'leader.name': exactRegex },
+    { teamName: exactRegex },
+    { 'members.email': lowerStr },
+    { 'members.name': exactRegex },
+    // Partial fallbacks for search strings
+    { name: partialRegex },
+    { 'leader.name': partialRegex },
+    { teamName: partialRegex },
+    { admNo: partialRegex },
+    { email: partialRegex },
   ];
+
   if (/^[0-9a-fA-F]{24}$/.test(idStr)) {
     orConditions.push({ _id: idStr });
   }
+
   return { $or: orConditions };
 };
 
@@ -443,9 +468,34 @@ export const getRegistrationById = async (req, res) => {
  */
 export const getAdminTeams = async (req, res) => {
   try {
+    const searchQuery = (req.query.search || req.query.q || req.query.query || '').trim();
+    let query = {};
+
+    if (searchQuery) {
+      const escaped = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const regex = new RegExp(escaped, 'i');
+      const orConditions = [
+        { name: regex },
+        { teamName: regex },
+        { email: regex },
+        { 'leader.name': regex },
+        { 'leader.email': regex },
+        { 'leader.phone': regex },
+        { admNo: regex },
+        { phone: regex },
+        { registrationId: regex },
+        { 'members.name': regex },
+        { 'members.email': regex },
+      ];
+      if (/^[0-9a-fA-F]{24}$/.test(searchQuery)) {
+        orConditions.push({ _id: searchQuery });
+      }
+      query = { $or: orConditions };
+    }
+
     let list = [];
     try {
-      list = await Registration.find().sort({ createdAt: -1 }).lean();
+      list = await Registration.find(query).sort({ createdAt: -1 }).lean();
     } catch (err) {
       list = inMemoryRegistrations;
     }
@@ -739,66 +789,115 @@ const deliverCertificateToPerson = async ({ name, email, teamName }) => {
  */
 export const sendCertificates = async (req, res) => {
   try {
-    const { teamId, id, registrationId, _id, email: targetEmail, name: targetName, teams: targetTeams } = req.body || {};
-    const lookupId = teamId || id || registrationId || _id || req.params?.id;
+    const {
+      teamId,
+      id,
+      registrationId,
+      _id,
+      admNo,
+      search,
+      q,
+      query: bodyQuery,
+      email: directEmailInput,
+      name: directNameInput,
+      leaderEmail,
+      leaderName,
+      teams: targetTeams,
+      selectedTeams,
+      selectedIds,
+      recipients: directRecipientsList,
+    } = req.body || {};
 
-    // 1. Fetch relevant registrations
-    let registrations = [];
-    try {
-      if (lookupId) {
-        const query = buildIdQuery(lookupId);
-        if (query) {
-          registrations = await Registration.find(query).lean();
-        }
-      } else if (Array.isArray(targetTeams) && targetTeams.length > 0) {
-        const ids = targetTeams.map(t => typeof t === 'string' ? t.trim() : (t.id || t.registrationId || t._id || t.email)).filter(Boolean);
-        const objectIds = ids.filter(i => /^[0-9a-fA-F]{24}$/.test(i));
-        registrations = await Registration.find({
-          $or: [
-            { registrationId: { $in: ids } },
-            ...(objectIds.length > 0 ? [{ _id: { $in: objectIds } }] : []),
-            { email: { $in: ids.map(i => i.toLowerCase()) } },
-            { 'leader.email': { $in: ids.map(i => i.toLowerCase()) } },
-          ]
-        }).lean();
-      } else {
-        registrations = await Registration.find().lean();
-      }
-    } catch (err) {
-      console.warn('Database query error in sendCertificates:', err.message);
-      if (lookupId) {
-        registrations = inMemoryRegistrations.filter((r) => r.registrationId === lookupId || r._id === lookupId || r.email === lookupId);
-      } else {
-        registrations = inMemoryRegistrations;
-      }
-    }
+    const lookupId = teamId || id || registrationId || _id || admNo || search || q || bodyQuery || req.params?.id;
 
-    // If single target email and name provided directly in request body
-    if (targetEmail && isValidEmail(targetEmail)) {
-      const cleanName = (targetName || 'Participant').trim();
+    // Check if a direct valid email is passed anywhere in the request
+    const detectedEmail = (
+      directEmailInput ||
+      leaderEmail ||
+      (typeof teamId === 'string' && isValidEmail(teamId) ? teamId : '') ||
+      (typeof id === 'string' && isValidEmail(id) ? id : '') ||
+      (typeof lookupId === 'string' && isValidEmail(lookupId) ? lookupId : '')
+    ).toString().trim().toLowerCase();
+
+    const detectedName = (
+      directNameInput ||
+      leaderName ||
+      (req.body?.name && req.body.name !== detectedEmail ? req.body.name : '') ||
+      (req.body?.participantName || '')
+    ).toString().trim();
+
+    // 1. Direct single email dispatch
+    if (detectedEmail && isValidEmail(detectedEmail)) {
+      const cleanName = detectedName || 'Participant';
       const singleRes = await deliverCertificateToPerson({
         name: cleanName,
-        email: targetEmail.trim().toLowerCase(),
-        teamName: 'IdeaJam 2026',
+        email: detectedEmail,
+        teamName: req.body?.teamName || req.body?.team || 'IdeaJam 2026',
       });
 
       return res.status(200).json({
         success: singleRes.success,
         message: singleRes.success
-          ? `Certificate sent successfully to ${targetEmail} (${cleanName})`
-          : `Failed sending certificate to ${targetEmail}: ${singleRes.error}`,
+          ? `Certificate sent successfully to ${detectedEmail} (${cleanName})`
+          : `Failed sending certificate to ${detectedEmail}: ${singleRes.error}`,
         data: singleRes,
       });
     }
 
-    if (!registrations || registrations.length === 0) {
-      return res.status(404).json({
-        success: false,
-        message: 'No registered participants/teams found for certificate dispatch.',
-      });
+    // 2. Fetch relevant registrations from DB
+    let registrations = [];
+    const rawArray = targetTeams || selectedTeams || selectedIds || directRecipientsList;
+
+    try {
+      if (Array.isArray(rawArray) && rawArray.length > 0) {
+        const idList = rawArray
+          .map((t) => (typeof t === 'string' ? t.trim() : (t.id || t.registrationId || t._id || t.email || t.admNo || t.name)))
+          .filter(Boolean);
+        const objectIds = idList.filter((i) => /^[0-9a-fA-F]{24}$/.test(i));
+        const emailList = idList.filter((i) => isValidEmail(i)).map((i) => i.toLowerCase());
+
+        registrations = await Registration.find({
+          $or: [
+            { registrationId: { $in: idList } },
+            ...(objectIds.length > 0 ? [{ _id: { $in: objectIds } }] : []),
+            ...(emailList.length > 0 ? [{ email: { $in: emailList } }, { 'leader.email': { $in: emailList } }] : []),
+            { admNo: { $in: idList } },
+            { name: { $in: idList } },
+            { teamName: { $in: idList } },
+          ],
+        }).lean();
+      } else if (lookupId && lookupId !== 'all') {
+        const query = buildIdQuery(lookupId);
+        if (query) {
+          registrations = await Registration.find(query).lean();
+        }
+      } else {
+        registrations = await Registration.find().lean();
+      }
+    } catch (err) {
+      console.warn('Database query fallback in sendCertificates:', err.message);
+      if (lookupId && lookupId !== 'all') {
+        registrations = inMemoryRegistrations.filter(
+          (r) => r.registrationId === lookupId || r._id === lookupId || r.email === lookupId || r.name === lookupId
+        );
+      } else {
+        registrations = inMemoryRegistrations;
+      }
     }
 
-    // 2. Extract unique recipients across teams & individual participants
+    if (!registrations || registrations.length === 0) {
+      // If direct array of recipient objects with name & email was provided
+      if (Array.isArray(rawArray) && rawArray.length > 0 && typeof rawArray[0] === 'object' && rawArray[0]?.email) {
+        registrations = rawArray;
+      } else {
+        return res.status(404).json({
+          success: false,
+          message: `No matching participant or team found for "${lookupId || 'specified query'}".`,
+        });
+      }
+    }
+
+    // 3. Extract unique recipients across teams & individual participants
     const recipientMap = new Map(); // email -> { name, email, teamName }
 
     for (const team of registrations) {
@@ -853,7 +952,7 @@ export const sendCertificates = async (req, res) => {
     if (recipients.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'No valid recipient email addresses found in registrations.',
+        message: 'No valid recipient email addresses found in matched registrations.',
       });
     }
 
@@ -870,8 +969,8 @@ export const sendCertificates = async (req, res) => {
       return res.status(200).json({
         success: successCount > 0,
         message: successCount > 0
-          ? `Certificate delivered successfully to ${recipients.map(r => `${r.name} (${r.email})`).join(', ')}`
-          : `Failed delivering certificate: ${results.map(r => r.error).join('; ')}`,
+          ? `Certificate delivered successfully to ${recipients.map((r) => `${r.name} (${r.email})`).join(', ')}`
+          : `Failed delivering certificate: ${results.map((r) => r.error).join('; ')}`,
         stats: {
           totalRecipients: recipients.length,
           sentCount: successCount,
@@ -884,7 +983,7 @@ export const sendCertificates = async (req, res) => {
     // For larger bulk batches (> 3): process first batch synchronously so response returns fast, rest in background
     const results = [];
     const BATCH_SIZE = 5;
-    
+
     // Process first batch to verify SMTP
     const firstBatch = recipients.slice(0, BATCH_SIZE);
     const firstResults = await Promise.all(firstBatch.map((r) => deliverCertificateToPerson(r)));
@@ -899,10 +998,10 @@ export const sendCertificates = async (req, res) => {
           await Promise.all(batch.map((r) => deliverCertificateToPerson(r)));
           await new Promise((resolve) => setTimeout(resolve, 200));
         }
-      })().catch(err => console.error('Background batch dispatch error:', err));
+      })().catch((err) => console.error('Background batch dispatch error:', err));
     }
 
-    const firstSuccessCount = firstResults.filter(r => r.success).length;
+    const firstSuccessCount = firstResults.filter((r) => r.success).length;
 
     return res.status(200).json({
       success: true,
