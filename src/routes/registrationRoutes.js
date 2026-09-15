@@ -11,6 +11,7 @@ import {
   updateRound3Evaluation,
   adminLogin,
   sendCertificates,
+  sendCertificatesPage,
   sendTeamCertificate,
   previewCertificate,
 } from '../controllers/registrationController.js';
@@ -34,7 +35,14 @@ router.patch('/admin/round2/:id/status', updateRound2Status);
 router.patch('/admin/round2/:id/evaluation', updateRound2Evaluation);
 router.patch('/admin/round3/:id/evaluation', updateRound3Evaluation);
 
-// Certificate Generation & Email Dispatch Endpoints
+// Certificate Generation & Email Dispatch Endpoints (Exact frontend dashboard matches)
+router.post('/certificates/send-page', sendCertificatesPage);
+router.post('/certificates/send-team/:id', sendTeamCertificate);
+router.post('/certificates/send-team', sendTeamCertificate);
+router.post('/certificates/send-all', sendCertificates);
+router.post('/certificates/send', sendCertificates);
+
+// Admin Certificate Endpoints Aliases
 router.post('/admin/send-certificates', sendCertificates);
 router.post('/admin/send-certificate', sendCertificates);
 router.post('/send-certificates', sendCertificates);

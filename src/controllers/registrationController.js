@@ -840,6 +840,12 @@ export const sendCertificates = async (req, res) => {
         message: singleRes.success
           ? `Certificate sent successfully to ${detectedEmail} (${cleanName})`
           : `Failed sending certificate to ${detectedEmail}: ${singleRes.error}`,
+        summary: {
+          sent: singleRes.success ? 1 : 0,
+          failed: singleRes.success ? 0 : 1,
+          skipped: 0,
+          totalRecipients: 1,
+        },
         data: singleRes,
       });
     }
@@ -893,6 +899,7 @@ export const sendCertificates = async (req, res) => {
         return res.status(404).json({
           success: false,
           message: `No matching participant or team found for "${lookupId || 'specified query'}".`,
+          summary: { sent: 0, failed: 1, skipped: 0, totalRecipients: 0 },
         });
       }
     }
@@ -953,6 +960,7 @@ export const sendCertificates = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'No valid recipient email addresses found in matched registrations.',
+        summary: { sent: 0, failed: 1, skipped: 0, totalRecipients: 0 },
       });
     }
 
@@ -971,6 +979,12 @@ export const sendCertificates = async (req, res) => {
         message: successCount > 0
           ? `Certificate delivered successfully to ${recipients.map((r) => `${r.name} (${r.email})`).join(', ')}`
           : `Failed delivering certificate: ${results.map((r) => r.error).join('; ')}`,
+        summary: {
+          sent: successCount,
+          failed: recipients.length - successCount,
+          skipped: 0,
+          totalRecipients: recipients.length,
+        },
         stats: {
           totalTeams: registrations.length,
           totalRecipients: recipients.length,
@@ -1014,6 +1028,12 @@ export const sendCertificates = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: `Analyzing completed! Certificates dispatch started for all ${recipients.length} members across ${registrations.length} team(s)/group(s).`,
+      summary: {
+        sent: firstSuccessCount + (recipients.length - firstBatch.length),
+        failed: firstResults.length - firstSuccessCount,
+        skipped: 0,
+        totalRecipients: recipients.length,
+      },
       stats: {
         totalTeams: registrations.length,
         totalRecipients: recipients.length,
@@ -1027,16 +1047,149 @@ export const sendCertificates = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: 'An error occurred while sending certificates: ' + error.message,
+      summary: { sent: 0, failed: 1, skipped: 0, totalRecipients: 0 },
     });
   }
 };
 
 /**
- * Admin: POST /api/admin/teams/:id/send-certificate
+ * Frontend Dashboard Endpoint: POST /api/certificates/send-page
+ * Dispatches certificates to all participants / teams on the specified page (e.g. 60 members per page)
+ */
+export const sendCertificatesPage = async (req, res) => {
+  try {
+    const page = Math.max(1, parseInt(req.body?.page, 10) || 1);
+    const limit = Math.max(1, parseInt(req.body?.limit, 10) || 60);
+    const skip = (page - 1) * limit;
+
+    let teams = [];
+    try {
+      teams = await Registration.find().sort({ createdAt: -1 }).skip(skip).limit(limit).lean();
+    } catch (err) {
+      teams = inMemoryRegistrations.slice(skip, skip + limit);
+    }
+
+    if (!teams || teams.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'No teams found for the specified page.',
+        summary: { sent: 0, failed: 0, skipped: 0, totalRecipients: 0 },
+        results: [],
+      });
+    }
+
+    // Extract all recipients across teams (Leader + all members)
+    const recipientMap = new Map();
+    for (const team of teams) {
+      const teamName = team.teamName || team.team || (team.name ? `${team.name}'s Team` : 'IdeaJam 2026');
+
+      // Direct participant
+      if (team.email && isValidEmail(team.email)) {
+        const directEmail = team.email.trim().toLowerCase();
+        if (!recipientMap.has(directEmail)) {
+          recipientMap.set(directEmail, {
+            name: team.name || team.fullName || team.participantName || 'Participant',
+            email: directEmail,
+            teamName,
+          });
+        }
+      }
+
+      // Leader
+      if (team.leader && (typeof team.leader === 'object' ? team.leader.email : team.email)) {
+        const leaderEmail = (typeof team.leader === 'object' ? team.leader.email : team.email || '').trim().toLowerCase();
+        if (isValidEmail(leaderEmail) && !recipientMap.has(leaderEmail)) {
+          const leaderName = (typeof team.leader === 'object' ? (team.leader.name || team.leaderName) : team.leader || team.name || 'Team Leader').toString().trim();
+          recipientMap.set(leaderEmail, {
+            name: leaderName,
+            email: leaderEmail,
+            teamName,
+          });
+        }
+      }
+
+      // Members
+      if (Array.isArray(team.members)) {
+        for (const m of team.members) {
+          if (m && m.email && isValidEmail(m.email)) {
+            const memberEmail = m.email.trim().toLowerCase();
+            if (!recipientMap.has(memberEmail)) {
+              recipientMap.set(memberEmail, {
+                name: (m.name || m.fullName || m.memberName || 'Team Member').toString().trim(),
+                email: memberEmail,
+                teamName,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    const recipients = Array.from(recipientMap.values());
+    const totalRecipients = recipients.length;
+
+    if (totalRecipients === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'No eligible recipients with valid emails found on this page.',
+        summary: { sent: 0, failed: 0, skipped: 0, totalRecipients: 0 },
+        results: [],
+      });
+    }
+
+    console.log(`🚀 [Certificates Page ${page}] Dispatching to ${totalRecipients} recipients across ${teams.length} teams...`);
+
+    // Process first batch in parallel
+    const BATCH_SIZE = 6;
+    const firstBatch = recipients.slice(0, BATCH_SIZE);
+    const firstResults = await Promise.allSettled(firstBatch.map((r) => deliverCertificateToPerson(r)));
+    const results = firstResults.map((s) => (s.status === 'fulfilled' ? s.value : { success: false, error: s.reason?.message }));
+
+    // Queue remainder in background
+    if (totalRecipients > BATCH_SIZE) {
+      const remaining = recipients.slice(BATCH_SIZE);
+      (async () => {
+        for (let i = 0; i < remaining.length; i += BATCH_SIZE) {
+          const batch = remaining.slice(i, i + BATCH_SIZE);
+          await Promise.allSettled(batch.map((r) => deliverCertificateToPerson(r)));
+          if (i + BATCH_SIZE < remaining.length) {
+            await new Promise((resolve) => setTimeout(resolve, 150));
+          }
+        }
+        console.log(`🎉 [Certificates Page ${page}] All ${totalRecipients} certificates dispatched.`);
+      })().catch((err) => console.error('Background page batch dispatch error:', err));
+    }
+
+    const sentCount = results.filter((r) => r.success).length;
+    const failedCount = results.filter((r) => !r.success).length;
+
+    return res.status(200).json({
+      success: true,
+      message: `Certificates dispatch initiated for all ${totalRecipients} members on page ${page}!`,
+      summary: {
+        sent: sentCount + (totalRecipients - firstBatch.length),
+        failed: failedCount,
+        skipped: 0,
+        totalRecipients,
+      },
+      results,
+    });
+  } catch (error) {
+    console.error('❌ [sendCertificatesPage Error]:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Failed to dispatch certificates for page: ' + error.message,
+      summary: { sent: 0, failed: 1, skipped: 0, totalRecipients: 0 },
+    });
+  }
+};
+
+/**
+ * Admin / Frontend: POST /api/certificates/send-team/:id
  * Dispatch certificates to a specific team's leader & members
  */
 export const sendTeamCertificate = async (req, res) => {
-  req.body = { ...(req.body || {}), teamId: req.params.id };
+  req.body = { ...(req.body || {}), teamId: req.params.id || req.body?.teamId || req.body?.id };
   return sendCertificates(req, res);
 };
 
