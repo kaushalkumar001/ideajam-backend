@@ -20,23 +20,16 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-<<<<<<< HEAD
     "@napi-rs/canvas": "^1.0.9",
-=======
->>>>>>> 983299c98109fea155a2c3cdc8d5e41663b0e165
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "mongoose": "^8.10.1",
     "morgan": "^1.10.0",
-<<<<<<< HEAD
-    "nodemailer": "^6.10.1",
-    "sharp": "^0.35.4"
-=======
     "nodemailer": "^6.10.1"
->>>>>>> 983299c98109fea155a2c3cdc8d5e41663b0e165
   },
   "devDependencies": {
     "nodemon": "^3.1.9"
   }
 }
+
