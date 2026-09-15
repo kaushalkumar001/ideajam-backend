@@ -5,14 +5,12 @@ import nodemailer from 'nodemailer';
 
 let transporterInstance = null;
 
-/**
- * Get or create a Singleton Pooled Nodemailer Transporter
- */
 const getTransporter = () => {
   const emailUser = (process.env.EMAIL_USER || '').trim();
   const emailPass = (process.env.EMAIL_PASS || '').replace(/[-\s]/g, '').trim();
 
   if (!emailUser || !emailPass) {
+    console.error('❌ EMAIL_USER or EMAIL_PASS missing in environment variables.');
     return null;
   }
 
@@ -404,8 +402,9 @@ export const sendCertificateEmail = async ({ recipientName, recipientEmail, team
   const transporter = getTransporter();
 
   if (!transporter) {
-    console.warn(`⚠️ [Nodemailer Notice] EMAIL_USER or EMAIL_PASS missing in .env. Cannot dispatch certificate to ${recipientEmail}.`);
-    return { success: false, reason: 'Email credentials missing in .env' };
+    const msg = 'Email credentials (EMAIL_USER / EMAIL_PASS) missing in environment variables';
+    console.warn(`⚠️ [Nodemailer Notice] ${msg}. Cannot dispatch certificate to ${recipientEmail}.`);
+    return { success: false, reason: msg, error: msg };
   }
 
   const fromEmail = (process.env.EMAIL_USER || '').trim();

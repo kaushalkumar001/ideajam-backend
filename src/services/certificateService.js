@@ -5,20 +5,46 @@ import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const TEMPLATE_PATH = path.join(__dirname, '../assets/certificate_template.png');
 
 let cachedTemplate = null;
 
+const resolveTemplatePath = () => {
+  const candidates = [
+    path.join(__dirname, '../assets/certificate_template.png'),
+    path.join(__dirname, '../../src/assets/certificate_template.png'),
+    path.join(process.cwd(), 'src/assets/certificate_template.png'),
+    path.join(process.cwd(), 'assets/certificate_template.png'),
+    path.join(process.cwd(), 'api/assets/certificate_template.png'),
+    path.resolve('src/assets/certificate_template.png'),
+    path.resolve('assets/certificate_template.png'),
+  ];
+
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        return p;
+      }
+    } catch (e) {}
+  }
+  return candidates[0];
+};
+
 /**
- * Load template image with memory caching
+ * Load template image with memory caching and buffer fallback
  */
 const getTemplateImage = async () => {
   if (cachedTemplate) return cachedTemplate;
-  if (!fs.existsSync(TEMPLATE_PATH)) {
-    throw new Error(`Certificate template not found at ${TEMPLATE_PATH}`);
+  const templatePath = resolveTemplatePath();
+
+  try {
+    const fileBuffer = fs.readFileSync(templatePath);
+    cachedTemplate = await loadImage(fileBuffer);
+    return cachedTemplate;
+  } catch (err) {
+    console.warn(`Template buffer load fallback from ${templatePath}:`, err.message);
+    cachedTemplate = await loadImage(templatePath);
+    return cachedTemplate;
   }
-  cachedTemplate = await loadImage(TEMPLATE_PATH);
-  return cachedTemplate;
 };
 
 /**
