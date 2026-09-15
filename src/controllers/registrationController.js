@@ -74,10 +74,7 @@ export const registerTeam = async (req, res) => {
     const reqLeaderName = req.body.leaderName || (typeof req.body.leader === 'object' ? req.body.leader?.name : req.body.leader) || '';
     const reqLeaderEmail = req.body.leaderEmail || (typeof req.body.leader === 'object' ? req.body.leader?.email : req.body.email) || '';
     const reqLeaderPhone = req.body.leaderPhone || (typeof req.body.leader === 'object' ? req.body.leader?.phone : req.body.phone) || '';
-<<<<<<< HEAD
-=======
     const reqProblemStatementId = req.body.problemStatementId || req.body.problemStatement || req.body.problem || req.body.problemId || '';
->>>>>>> 983299c98109fea155a2c3cdc8d5e41663b0e165
     const reqDriveLink = req.body.driveLink || req.body.ppt || req.body.pptUrl || req.body.submissionUrl || '';
     const rawMembers = Array.isArray(req.body.members) ? req.body.members : [];
 
@@ -150,10 +147,7 @@ export const registerTeam = async (req, res) => {
     const cleanLeaderEmail = reqLeaderEmail.toString().trim().toLowerCase();
     const cleanLeaderName = reqLeaderName.toString().trim();
     const cleanLeaderPhone = reqLeaderPhone.toString().trim();
-<<<<<<< HEAD
-=======
     const cleanProblemStatementId = (reqProblemStatementId || '').toString().trim();
->>>>>>> 983299c98109fea155a2c3cdc8d5e41663b0e165
     const cleanDriveLink = (reqDriveLink || '').toString().trim();
     const cleanMembers = activeMembers.map((m, idx) => ({
       id: m.id || idx + 1,
@@ -350,10 +344,7 @@ export const getAllRegistrations = async (req, res) => {
  */
 const formatTeamRecord = (item, idx = 0) => {
   if (!item) return null;
-<<<<<<< HEAD
-=======
   const problemVal = item.problemStatementId || item.problem || item.problemStatement || 'Registered Solution';
->>>>>>> 983299c98109fea155a2c3cdc8d5e41663b0e165
   return {
     id: item.registrationId || item._id || idx + 1,
     registrationId: item.registrationId || item._id,
@@ -364,12 +355,8 @@ const formatTeamRecord = (item, idx = 0) => {
     phone: item.leader?.phone || item.phone || '—',
     department: item.department || 'General',
     route: item.route || 'SIH Problem Statement',
-<<<<<<< HEAD
-    problem: item.problem || 'Registered Solution',
-=======
     problemStatementId: item.problemStatementId || problemVal,
     problem: problemVal,
->>>>>>> 983299c98109fea155a2c3cdc8d5e41663b0e165
     idea: item.idea || 'Idea submission for IdeaJam 2026',
     ppt: item.driveLink || item.ppt || '',
     driveLink: item.driveLink || item.ppt || '',
