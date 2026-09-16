@@ -935,18 +935,23 @@ export const sendCertificates = async (req, res) => {
 
     // 1. Direct single email dispatch
     if (detectedEmail && isValidEmail(detectedEmail)) {
-      // If name is missing or placeholder, look up user in DB to retrieve their exact registered name
-      if (!detectedName || detectedName.toLowerCase() === 'participant') {
-        try {
-          const dbUser = await Registration.findOne({
-            $or: [
-              { email: detectedEmail },
-              { 'leader.email': detectedEmail },
-              { 'members.email': detectedEmail },
-            ],
-          }).lean();
+      let resolvedTeamName = req.body?.teamName || req.body?.team || '';
+      let dbUser = null;
 
-          if (dbUser) {
+      try {
+        dbUser = await Registration.findOne({
+          $or: [
+            { email: detectedEmail },
+            { 'leader.email': detectedEmail },
+            { 'members.email': detectedEmail },
+          ],
+        }).lean();
+
+        if (dbUser) {
+          if (!resolvedTeamName) {
+            resolvedTeamName = dbUser.teamName || dbUser.team || '';
+          }
+          if (!detectedName || detectedName.toLowerCase() === 'participant') {
             if (dbUser.email === detectedEmail) {
               detectedName = dbUser.name || dbUser.fullName || dbUser.participantName || dbUser.studentName || '';
             } else if (dbUser.leader?.email === detectedEmail) {
@@ -958,16 +963,16 @@ export const sendCertificates = async (req, res) => {
               }
             }
           }
-        } catch (dbLookupErr) {
-          console.warn('Single certificate DB name lookup notice:', dbLookupErr.message);
         }
+      } catch (dbLookupErr) {
+        console.warn('Single certificate DB lookup notice:', dbLookupErr.message);
       }
 
       const cleanName = formatParticipantName(detectedName || 'Participant');
       const singleRes = await deliverCertificateToPerson({
         name: cleanName,
         email: detectedEmail,
-        teamName: req.body?.teamName || req.body?.team || 'IdeaJam 2026',
+        teamName: resolvedTeamName || 'IdeaJam 2026',
       });
 
       return res.status(200).json({
