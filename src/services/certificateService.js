@@ -1,4 +1,4 @@
-import { createCanvas, loadImage } from '@napi-rs/canvas';
+import { createCanvas, loadImage, GlobalFonts } from '@napi-rs/canvas';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
@@ -7,6 +7,49 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let cachedTemplate = null;
+let fontRegistered = false;
+
+const resolveFontPath = () => {
+  const candidates = [
+    path.join(__dirname, '../assets/Montserrat.ttf'),
+    path.join(__dirname, '../../src/assets/Montserrat.ttf'),
+    path.join(process.cwd(), 'src/assets/Montserrat.ttf'),
+    path.join(process.cwd(), 'assets/Montserrat.ttf'),
+    path.join(process.cwd(), 'api/assets/Montserrat.ttf'),
+    path.resolve('src/assets/Montserrat.ttf'),
+    path.resolve('assets/Montserrat.ttf'),
+  ];
+
+  for (const p of candidates) {
+    try {
+      if (fs.existsSync(p)) {
+        return p;
+      }
+    } catch (e) {}
+  }
+  return candidates[0];
+};
+
+const ensureFontRegistered = () => {
+  if (fontRegistered) return;
+  try {
+    // Attempt loading system fonts first if present
+    if (typeof GlobalFonts.loadSystemFonts === 'function') {
+      try { GlobalFonts.loadSystemFonts(); } catch (e) {}
+    }
+
+    const fontPath = resolveFontPath();
+    if (fs.existsSync(fontPath)) {
+      GlobalFonts.registerFromPath(fontPath, 'Montserrat');
+      fontRegistered = true;
+      console.log('✅ Registered certificate font (Montserrat) from:', fontPath);
+    } else {
+      console.warn('⚠️ Font file not found at:', fontPath);
+    }
+  } catch (err) {
+    console.warn('⚠️ Font registration notice:', err.message);
+  }
+};
 
 const resolveTemplatePath = () => {
   const candidates = [
@@ -91,6 +134,8 @@ export const formatParticipantName = (rawName) => {
  * @returns {Promise<Buffer>} - PNG image buffer of the personalized certificate
  */
 export const generateCertificateBuffer = async (participantName = 'Participant') => {
+  ensureFontRegistered();
+
   const template = await getTemplateImage();
   const canvas = createCanvas(template.width, template.height);
   const ctx = canvas.getContext('2d');
@@ -119,7 +164,7 @@ export const generateCertificateBuffer = async (participantName = 'Participant')
   ctx.save();
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
-  ctx.font = `bold ${fontSize}px "Segoe UI", "Arial", "Helvetica", sans-serif`;
+  ctx.font = `bold ${fontSize}px "Montserrat", "Segoe UI", "Arial", sans-serif`;
   ctx.fillStyle = '#0f2928'; // Deep teal-black matching IdeaJam branding
 
   // Measure text to ensure it fits within maximum line width (approx 560px)
@@ -127,7 +172,7 @@ export const generateCertificateBuffer = async (participantName = 'Participant')
   let textMetrics = ctx.measureText(cleanName);
   while (textMetrics.width > maxLineWidth && fontSize > 16) {
     fontSize -= 2;
-    ctx.font = `bold ${fontSize}px "Segoe UI", "Arial", "Helvetica", sans-serif`;
+    ctx.font = `bold ${fontSize}px "Montserrat", "Segoe UI", "Arial", sans-serif`;
     textMetrics = ctx.measureText(cleanName);
   }
 
